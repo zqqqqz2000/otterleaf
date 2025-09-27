@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect } from 'react'
 import { useCodeMirrorViewContext } from './codemirror-context'
 import useCodeMirrorScope from '../hooks/use-codemirror-scope'
 import { useEditorViewContext } from '@/features/ide-react/context/editor-view-context'
+import { setGlobalEditorView } from '@/features/ide-react/api/editor-api'
 
 function CodeMirrorView() {
   const view = useCodeMirrorViewContext()
@@ -29,7 +30,15 @@ function CodeMirrorView() {
   // accessed outside the editor component
   useEffect(() => {
     setView(view)
+    setGlobalEditorView(view)
   }, [setView, view])
+
+  // Clean up global editor view when component unmounts
+  useEffect(() => {
+    return () => {
+      setGlobalEditorView(null)
+    }
+  }, [])
 
   useCodeMirrorScope(view)
 
