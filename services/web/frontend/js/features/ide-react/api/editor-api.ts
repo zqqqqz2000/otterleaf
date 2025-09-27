@@ -51,14 +51,31 @@ export interface EditorApiEvents {
     }
     error?: string
   }
+  'editor:recompile': {
+    requestId: string
+    options?: any
+  }
+  'editor:recompile:response': {
+    requestId: string
+    success: boolean
+    error?: string
+  }
 }
 
 // 全局编辑器视图引用
 let globalEditorView: EditorView | null = null
 
+// 全局编译上下文引用
+let globalCompileContext: { startCompile: (options?: any) => void } | null = null
+
 // 设置全局编辑器视图
 export function setGlobalEditorView(view: EditorView | null) {
   globalEditorView = view
+}
+
+// 设置全局编译上下文
+export function setGlobalCompileContext(context: { startCompile: (options?: any) => void } | null) {
+  globalCompileContext = context
 }
 
 // 获取当前编辑器视图
@@ -251,6 +268,43 @@ function handleApiEvent(event: CustomEvent) {
       break
     }
 
+    case 'editor:recompile': {
+      const { requestId, options } = detail as EditorApiEvents['editor:recompile']
+      
+      if (!globalCompileContext) {
+        const response: EditorApiEvents['editor:recompile:response'] = {
+          requestId,
+          success: false,
+          error: 'Compile context not available',
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:recompile:response', { detail: response })
+        )
+        break
+      }
+
+      try {
+        globalCompileContext.startCompile(options)
+        const response: EditorApiEvents['editor:recompile:response'] = {
+          requestId,
+          success: true,
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:recompile:response', { detail: response })
+        )
+      } catch (error) {
+        const response: EditorApiEvents['editor:recompile:response'] = {
+          requestId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:recompile:response', { detail: response })
+        )
+      }
+      break
+    }
+
     default:
       debugConsole.warn('Unknown editor API event:', type)
   }
@@ -264,6 +318,7 @@ export function initializeEditorApi() {
     'editor:setSelection',
     'editor:replaceText',
     'editor:getDocument',
+    'editor:recompile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -280,6 +335,7 @@ export function cleanupEditorApi() {
     'editor:setSelection',
     'editor:replaceText',
     'editor:getDocument',
+    'editor:recompile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -367,6 +423,26 @@ export const editorApi = {
       window.addEventListener('editor:getDocument:response', handleResponse as EventListener)
       window.dispatchEvent(new CustomEvent('editor:getDocument', {
         detail: { requestId }
+      }))
+    })
+  },
+
+  // 重新编译
+  recompile: (options?: any): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as { detail: EditorApiEvents['editor:recompile:response'] }
+        if (detail.requestId === requestId) {
+          window.removeEventListener('editor:recompile:response', handleResponse as EventListener)
+          resolve(detail.success)
+        }
+      }
+
+      window.addEventListener('editor:recompile:response', handleResponse as EventListener)
+      window.dispatchEvent(new CustomEvent('editor:recompile', {
+        detail: { requestId, options }
       }))
     })
   },

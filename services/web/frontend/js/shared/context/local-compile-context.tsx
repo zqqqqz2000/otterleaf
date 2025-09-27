@@ -39,6 +39,7 @@ import { useFeatureFlag } from '@/shared/context/split-test-context'
 import { useEditorManagerContext } from '@/features/ide-react/context/editor-manager-context'
 import { useEditorOpenDocContext } from '@/features/ide-react/context/editor-open-doc-context'
 import { getJSON } from '@/infrastructure/fetch-json'
+import { setGlobalCompileContext } from '@/features/ide-react/api/editor-api'
 import { CompileResponseData } from '../../../../types/compile'
 import {
   PdfScrollPosition,
@@ -691,6 +692,14 @@ export const LocalCompileProvider: FC<React.PropsWithChildren> = ({
     },
     [compiler, setCompiledOnce]
   )
+
+  // 注册全局编译上下文引用
+  useEffect(() => {
+    setGlobalCompileContext({ startCompile })
+    return () => {
+      setGlobalCompileContext(null)
+    }
+  }, [startCompile])
 
   // stop a compile manually
   const stopCompile = useCallback(() => {
