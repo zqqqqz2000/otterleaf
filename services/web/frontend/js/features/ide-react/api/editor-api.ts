@@ -1,5 +1,4 @@
 import { EditorView } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
 import { debugConsole } from '@/utils/debugging'
 
 // 定义API事件类型
@@ -296,7 +295,7 @@ export const editorApi = {
   getSelection: (): Promise<EditorApiEvents['editor:getSelection:response']['data']> => {
     return new Promise((resolve) => {
       const requestId = generateRequestId()
-      
+
       const handleResponse = (event: CustomEvent) => {
         const { detail } = event as { detail: EditorApiEvents['editor:getSelection:response'] }
         if (detail.requestId === requestId) {
@@ -306,8 +305,8 @@ export const editorApi = {
       }
 
       window.addEventListener('editor:getSelection:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:getSelection', { 
-        detail: { requestId } 
+      window.dispatchEvent(new CustomEvent('editor:getSelection', {
+        detail: { requestId }
       }))
     })
   },
@@ -316,7 +315,7 @@ export const editorApi = {
   setSelection: (from: number, to: number): Promise<boolean> => {
     return new Promise((resolve) => {
       const requestId = generateRequestId()
-      
+
       const handleResponse = (event: CustomEvent) => {
         const { detail } = event as { detail: EditorApiEvents['editor:setSelection:response'] }
         if (detail.requestId === requestId) {
@@ -326,8 +325,8 @@ export const editorApi = {
       }
 
       window.addEventListener('editor:setSelection:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:setSelection', { 
-        detail: { requestId, from, to } 
+      window.dispatchEvent(new CustomEvent('editor:setSelection', {
+        detail: { requestId, from, to }
       }))
     })
   },
@@ -336,7 +335,7 @@ export const editorApi = {
   replaceText: (from: number, to: number, text: string): Promise<boolean> => {
     return new Promise((resolve) => {
       const requestId = generateRequestId()
-      
+
       const handleResponse = (event: CustomEvent) => {
         const { detail } = event as { detail: EditorApiEvents['editor:replaceText:response'] }
         if (detail.requestId === requestId) {
@@ -346,8 +345,8 @@ export const editorApi = {
       }
 
       window.addEventListener('editor:replaceText:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:replaceText', { 
-        detail: { requestId, from, to, text } 
+      window.dispatchEvent(new CustomEvent('editor:replaceText', {
+        detail: { requestId, from, to, text }
       }))
     })
   },
@@ -356,7 +355,7 @@ export const editorApi = {
   getDocument: (): Promise<EditorApiEvents['editor:getDocument:response']['data']> => {
     return new Promise((resolve) => {
       const requestId = generateRequestId()
-      
+
       const handleResponse = (event: CustomEvent) => {
         const { detail } = event as { detail: EditorApiEvents['editor:getDocument:response'] }
         if (detail.requestId === requestId) {
@@ -366,8 +365,8 @@ export const editorApi = {
       }
 
       window.addEventListener('editor:getDocument:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:getDocument', { 
-        detail: { requestId } 
+      window.dispatchEvent(new CustomEvent('editor:getDocument', {
+        detail: { requestId }
       }))
     })
   },
