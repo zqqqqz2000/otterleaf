@@ -35,8 +35,26 @@ export function SuggestedChangesIntegration() {
 
   // 处理接受修改
   const handleAcceptChange = useCallback((changeId: string) => {
+    console.log('Accepting change:', changeId)
+    
+    if (!view) return
+    
+    // 找到要接受的修改
+    const change = suggestedChangesContext.suggestedChanges.find(c => c.id === changeId)
+    if (!change) return
+    
+    // 应用修改到 CodeMirror 编辑器
+    view.dispatch({
+      changes: {
+        from: change.from,
+        to: change.to,
+        insert: change.suggestedText
+      }
+    })
+    
+    // 更新建议修改状态
     suggestedChangesContext.acceptChange(changeId)
-  }, [suggestedChangesContext])
+  }, [view, suggestedChangesContext])
 
   // 处理拒绝修改
   const handleRejectChange = useCallback((changeId: string) => {

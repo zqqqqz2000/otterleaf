@@ -3,7 +3,11 @@ import { StateField, StateEffect, Extension, RangeSet } from '@codemirror/state'
 import { SuggestedChange } from '../../ide-react/context/suggested-changes-context'
 
 // 状态效果：更新建议修改
-export const updateSuggestedChangesEffect = StateEffect.define<SuggestedChange[]>()
+export const updateSuggestedChangesEffect = StateEffect.define<{
+  changes: SuggestedChange[]
+  onAccept?: (changeId: string) => void
+  onReject?: (changeId: string) => void
+}>()
 
 // 建议修改的装饰器状态字段
 const suggestedChangesField = StateField.define<DecorationSet>({
@@ -15,7 +19,11 @@ const suggestedChangesField = StateField.define<DecorationSet>({
     
     for (const effect of tr.effects) {
       if (effect.is(updateSuggestedChangesEffect)) {
-        decorations = buildSuggestedChangesDecorations(effect.value)
+        decorations = buildSuggestedChangesDecorations(
+          effect.value.changes,
+          effect.value.onAccept,
+          effect.value.onReject
+        )
       }
     }
     
@@ -35,7 +43,7 @@ class SuggestedInsertWidget extends WidgetType {
 
   toDOM() {
     const span = document.createElement('span')
-    span.className = 'ol-cm-suggested-insert-text'
+    span.className = 'ol-cm-suggested-insert-text ol-cm-suggested-change-hoverable'
     span.textContent = this.text
     span.setAttribute('data-change-id', this.changeId)
     return span
@@ -61,24 +69,70 @@ class SuggestedChangeWidget extends WidgetType {
   }
 
   toDOM() {
+    
     const container = document.createElement('div')
     container.className = 'ol-cm-suggested-change-widget'
+    container.setAttribute('data-widget-change-id', this.change.id)
+    container.style.cssText = `
+      display: none !important;
+      position: absolute !important;
+      align-items: center !important;
+      background-color: #f5f5f5 !important;
+      border: 1px solid #ddd !important;
+      border-radius: 4px !important;
+      padding: 4px 8px !important;
+      margin: 2px !important;
+      font-size: 12px !important;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+      z-index: 1000 !important;
+      top: -35px !important;
+      left: 0 !important;
+      pointer-events: auto !important;
+    `
+    
+    // 添加鼠标事件监听器到容器
+    container.addEventListener('mouseenter', () => {
+      // 清除隐藏定时器
+      if (hideTimeout) {
+        clearTimeout(hideTimeout)
+        hideTimeout = null
+      }
+      container.style.display = 'inline-flex'
+      container.setAttribute('data-hover-active', 'true')
+      currentVisibleWidget = container
+    })
+    
+    container.addEventListener('mouseleave', () => {
+      // 延迟隐藏
+      hideTimeout = window.setTimeout(() => {
+        if (currentVisibleWidget === container) {
+          container.style.display = 'none'
+          container.removeAttribute('data-hover-active')
+          currentVisibleWidget = null
+        }
+        hideTimeout = null
+      }, 200)
+    })
     
     const content = document.createElement('div')
     content.className = 'ol-cm-suggested-change-content'
+    content.style.marginRight = '8px'
     
     // 显示原文和建议文本
     const originalSpan = document.createElement('span')
     originalSpan.className = 'ol-cm-suggested-change-original'
-    originalSpan.textContent = this.change.originalText
+    originalSpan.textContent = this.change.originalText || '(删除)'
+    originalSpan.style.cssText = 'text-decoration: line-through; color: #c62828;'
     
     const arrow = document.createElement('span')
     arrow.className = 'ol-cm-suggested-change-arrow'
     arrow.textContent = ' → '
+    arrow.style.cssText = 'color: #666; font-weight: bold;'
     
     const suggestedSpan = document.createElement('span')
     suggestedSpan.className = 'ol-cm-suggested-change-suggested'
-    suggestedSpan.textContent = this.change.suggestedText
+    suggestedSpan.textContent = this.change.suggestedText || '(无)'
+    suggestedSpan.style.cssText = 'color: #2e7d32; font-weight: bold;'
     
     content.appendChild(originalSpan)
     content.appendChild(arrow)
@@ -87,11 +141,22 @@ class SuggestedChangeWidget extends WidgetType {
     // 按钮容器
     const buttons = document.createElement('div')
     buttons.className = 'ol-cm-suggested-change-buttons'
+    buttons.style.cssText = 'display: flex; gap: 4px;'
     
     const acceptBtn = document.createElement('button')
     acceptBtn.className = 'ol-cm-suggested-change-accept'
     acceptBtn.textContent = '✓'
     acceptBtn.title = '接受修改'
+    acceptBtn.style.cssText = `
+      border: none !important;
+      border-radius: 2px !important;
+      padding: 2px 6px !important;
+      cursor: pointer !important;
+      font-size: 12px !important;
+      font-weight: bold !important;
+      background-color: #4caf50 !important;
+      color: white !important;
+    `
     acceptBtn.onclick = (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -102,6 +167,16 @@ class SuggestedChangeWidget extends WidgetType {
     rejectBtn.className = 'ol-cm-suggested-change-reject'
     rejectBtn.textContent = '✗'
     rejectBtn.title = '拒绝修改'
+    rejectBtn.style.cssText = `
+      border: none !important;
+      border-radius: 2px !important;
+      padding: 2px 6px !important;
+      cursor: pointer !important;
+      font-size: 12px !important;
+      font-weight: bold !important;
+      background-color: #f44336 !important;
+      color: white !important;
+    `
     rejectBtn.onclick = (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -150,7 +225,7 @@ function buildSuggestedChangesDecorations(
     if (from < to) {
       decorations.push(
         Decoration.mark({
-          class: 'ol-cm-suggested-change-delete',
+          class: 'ol-cm-suggested-change-delete ol-cm-suggested-change-hoverable',
           attributes: {
             'data-change-id': change.id
           }
@@ -199,7 +274,9 @@ const suggestedChangesTheme = EditorView.baseTheme({
   '.ol-cm-suggested-change-delete': {
     textDecoration: 'line-through',
     backgroundColor: '#ffebee',
-    color: '#c62828'
+    color: '#c62828',
+    position: 'relative',
+    cursor: 'pointer'
   },
   
   '.ol-cm-suggested-change-insert': {
@@ -214,11 +291,19 @@ const suggestedChangesTheme = EditorView.baseTheme({
     fontWeight: 'bold',
     padding: '1px 2px',
     borderRadius: '2px',
-    border: '1px solid #c8e6c9'
+    border: '1px solid #c8e6c9',
+    position: 'relative',
+    cursor: 'pointer'
+  },
+  
+  '.ol-cm-suggested-change-hoverable:hover': {
+    backgroundColor: '#fff3e0 !important',
+    outline: '2px solid #ff9800'
   },
   
   '.ol-cm-suggested-change-widget': {
-    display: 'inline-flex',
+    display: 'none',
+    position: 'absolute',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
     border: '1px solid #ddd',
@@ -226,7 +311,16 @@ const suggestedChangesTheme = EditorView.baseTheme({
     padding: '4px 8px',
     margin: '2px',
     fontSize: '12px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    zIndex: '1000',
+    top: '-35px',
+    left: '0',
+    transition: 'opacity 0.2s ease-in-out',
+    opacity: '0'
+  },
+  
+  '.ol-cm-suggested-change-widget[data-hover-active="true"]': {
+    opacity: '1'
   },
   
   '.ol-cm-suggested-change-content': {
@@ -279,6 +373,67 @@ const suggestedChangesTheme = EditorView.baseTheme({
   }
 })
 
+// 存储当前显示的按钮，用于管理显示状态
+let currentVisibleWidget: HTMLElement | null = null
+let hideTimeout: number | null = null
+
+// 鼠标悬停事件处理扩展
+const hoverExtension = EditorView.domEventHandlers({
+  mouseover(event, view) {
+    const target = event.target as HTMLElement
+    
+    // 检查是否悬停在建议修改文本上
+    if (target.classList.contains('ol-cm-suggested-change-hoverable')) {
+      const changeId = target.getAttribute('data-change-id')
+      if (changeId) {
+        const widget = view.dom.querySelector(`[data-widget-change-id="${changeId}"]`) as HTMLElement
+        if (widget) {
+          // 清除之前的隐藏定时器
+          if (hideTimeout) {
+            clearTimeout(hideTimeout)
+            hideTimeout = null
+          }
+          
+          // 隐藏之前显示的按钮
+          if (currentVisibleWidget && currentVisibleWidget !== widget) {
+            currentVisibleWidget.style.display = 'none'
+            currentVisibleWidget.removeAttribute('data-hover-active')
+          }
+          
+          // 显示当前按钮
+          widget.style.display = 'inline-flex'
+          widget.setAttribute('data-hover-active', 'true')
+          currentVisibleWidget = widget
+        }
+      }
+    }
+  },
+  
+  mouseout(event, view) {
+    const target = event.target as HTMLElement
+    const relatedTarget = event.relatedTarget as HTMLElement
+    
+    // 检查是否从建议修改文本移出
+    if (target.classList.contains('ol-cm-suggested-change-hoverable')) {
+      const changeId = target.getAttribute('data-change-id')
+      if (changeId) {
+        const widget = view.dom.querySelector(`[data-widget-change-id="${changeId}"]`) as HTMLElement
+        if (widget && relatedTarget && !widget.contains(relatedTarget)) {
+          // 延迟隐藏，给用户时间移动到按钮上
+          hideTimeout = window.setTimeout(() => {
+            if (currentVisibleWidget === widget) {
+              widget.style.display = 'none'
+              widget.removeAttribute('data-hover-active')
+              currentVisibleWidget = null
+            }
+            hideTimeout = null
+          }, 200)
+        }
+      }
+    }
+  }
+})
+
 // 创建建议修改扩展
 export function suggestedChanges(
   changes: SuggestedChange[] = [],
@@ -287,7 +442,8 @@ export function suggestedChanges(
 ): Extension {
   return [
     suggestedChangesField.init(() => buildSuggestedChangesDecorations(changes, onAccept, onReject)),
-    suggestedChangesTheme
+    suggestedChangesTheme,
+    hoverExtension
   ]
 }
 
@@ -299,7 +455,11 @@ export function updateSuggestedChanges(
   onReject?: (changeId: string) => void
 ) {
   view.dispatch({
-    effects: updateSuggestedChangesEffect.of(changes)
+    effects: updateSuggestedChangesEffect.of({
+      changes,
+      onAccept,
+      onReject
+    })
   })
 }
 

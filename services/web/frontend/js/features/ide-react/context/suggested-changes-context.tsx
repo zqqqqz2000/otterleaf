@@ -88,13 +88,6 @@ export function SuggestedChangesProvider({ children }: SuggestedChangesProviderP
       const change = prev.find(c => c.id === changeId)
       if (!change) return prev
 
-      // 将建议修改应用到原始文档
-      const newOriginal = originalDocument.slice(0, change.from) + 
-                         change.suggestedText + 
-                         originalDocument.slice(change.to)
-      
-      setOriginalDocument(newOriginal)
-
       // 移除已接受的修改，并调整其他修改的位置
       const lengthDiff = change.suggestedText.length - (change.to - change.from)
       
@@ -111,7 +104,7 @@ export function SuggestedChangesProvider({ children }: SuggestedChangesProviderP
           return c
         })
     })
-  }, [originalDocument])
+  }, [])
 
   // 拒绝修改
   const rejectChange = useCallback((changeId: string) => {
