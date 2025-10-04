@@ -19,6 +19,7 @@ import {
 import MathPreviewTooltip from './math-preview-tooltip'
 import { useToolbarMenuBarEditorCommands } from '@/features/ide-redesign/hooks/use-toolbar-menu-editor-commands'
 import { useProjectContext } from '@/shared/context/project-context'
+import SuggestedChangesIntegration from './suggested-changes-integration'
 
 // TODO: remove this when definitely no longer used
 export * from './codemirror-context'
@@ -85,6 +86,7 @@ function CodeMirrorEditorComponents() {
       <CodeMirrorCommandTooltip />
 
       <MathPreviewTooltip />
+      <SuggestedChangesIntegration />
       {features.trackChangesVisible && <ReviewTooltipMenu />}
       {features.trackChangesVisible && <ReviewPanelRoot />}
 

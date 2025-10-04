@@ -47,6 +47,7 @@ import { toolbarPanel } from './toolbar/toolbar-panel'
 import { breadcrumbPanel } from './breadcrumbs-panel'
 import { geometryChangeEvent } from './geometry-change-event'
 import { docName } from './doc-name'
+import { suggestedChanges } from './suggested-changes'
 import { fileTreeItemDrop } from './file-tree-item-drop'
 import { mathPreview } from './math-preview'
 import { ranges } from './ranges'
@@ -162,6 +163,7 @@ export const createExtensions = (options: Record<string, any>): Extension[] => [
   // The built-in extension that highlights the active line in the gutter.
   highlightActiveLineGutter(),
   inlineBackground(options.visual.visual),
+  suggestedChanges(),
   codemirrorDevTools(),
   // Send exceptions to Sentry
   EditorView.exceptionSink.of(options.handleException),
