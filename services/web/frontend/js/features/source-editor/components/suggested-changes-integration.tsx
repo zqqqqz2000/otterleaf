@@ -61,9 +61,9 @@ export function SuggestedChangesIntegration() {
         } else if (diff.type === 'replace') {
           // Replace text at the specified position
           userDocument =
-            userDocument.slice(0, diff.realFrom) +
+            userDocument.slice(0, diff.userFrom) +
             diff.realText +
-            userDocument.slice(diff.realTo)
+            userDocument.slice(diff.userTo)
         }
         console.log('set user', userDocument)
         suggestedChangesContext.setUserDocument(userDocument)
