@@ -62,7 +62,7 @@ const buildDefaultPolicy = (reportUri, styleSrc) => {
     `base-uri 'none'`, // forbid setting a "base" element
     `default-src 'none'`, // forbid loading anything from a "src" attribute
     `form-action 'none'`, // forbid setting a form action
-    `frame-ancestors 'none'`, // forbid loading embedded content
+    `frame-ancestors *`, // allow iframe embedding from any origin
     `img-src 'self'`, // allow loading images from the same domain (e.g. the favicon).
   ]
 

@@ -339,6 +339,8 @@ webRouter.use(
     originAgentCluster: false,
     // We have custom handling for CSP below, so Helmet's default is disabled
     contentSecurityPolicy: false,
+    // Allow iframe embedding by disabling X-Frame-Options
+    frameguard: false,
   })
 )
 
