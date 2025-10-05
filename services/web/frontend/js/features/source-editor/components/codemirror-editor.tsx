@@ -20,6 +20,7 @@ import MathPreviewTooltip from './math-preview-tooltip'
 import { useToolbarMenuBarEditorCommands } from '@/features/ide-redesign/hooks/use-toolbar-menu-editor-commands'
 import { useProjectContext } from '@/shared/context/project-context'
 import SuggestedChangesIntegration from './suggested-changes-integration'
+import { SuggestedChangesProvider } from '@/features/ide-react/context/suggested-changes-context'
 
 // TODO: remove this when definitely no longer used
 export * from './codemirror-context'
@@ -61,7 +62,9 @@ function CodeMirrorEditor() {
   return (
     <CodeMirrorStateContext.Provider value={state}>
       <CodeMirrorViewContext.Provider value={viewRef.current}>
-        <CodeMirrorEditorComponents />
+        <SuggestedChangesProvider>
+          <CodeMirrorEditorComponents />
+        </SuggestedChangesProvider>
       </CodeMirrorViewContext.Provider>
     </CodeMirrorStateContext.Provider>
   )

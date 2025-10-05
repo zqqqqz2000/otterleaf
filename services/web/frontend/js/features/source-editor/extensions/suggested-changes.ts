@@ -48,8 +48,7 @@ class UserTextWidget extends WidgetType {
 
   toDOM() {
     const span = document.createElement('span')
-    span.className =
-      'ol-cm-user-text ol-cm-suggested-change-hoverable'
+    span.className = 'ol-cm-user-text ol-cm-suggested-change-hoverable'
     span.textContent = this.text
     span.setAttribute('data-change-id', this.changeId)
     span.style.cssText = `
@@ -86,7 +85,7 @@ class SuggestedChangeWidget extends WidgetType {
   toDOM() {
     const container = document.createElement('div')
     container.className = 'ol-cm-suggested-change-widget'
-    container.setAttribute('data-widget-change-id', this.diff.changeId)
+    container.setAttribute('data-widget-change-id', this.diff.id)
     container.style.cssText = `
       display: none !important;
       position: absolute !important;
@@ -134,8 +133,7 @@ class SuggestedChangeWidget extends WidgetType {
     const userSpan = document.createElement('span')
     userSpan.className = 'ol-cm-suggested-change-original'
     userSpan.textContent = this.diff.userText || '(deleted)'
-    userSpan.style.cssText =
-      'text-decoration: line-through; color: #c62828;'
+    userSpan.style.cssText = 'text-decoration: line-through; color: #c62828;'
 
     const arrow = document.createElement('span')
     arrow.className = 'ol-cm-suggested-change-arrow'
@@ -173,7 +171,7 @@ class SuggestedChangeWidget extends WidgetType {
     acceptBtn.onclick = e => {
       e.preventDefault()
       e.stopPropagation()
-      this.onAccept(this.diff.changeId)
+      this.onAccept(this.diff.id)
     }
 
     const revertBtn = document.createElement('button')
@@ -193,7 +191,7 @@ class SuggestedChangeWidget extends WidgetType {
     revertBtn.onclick = e => {
       e.preventDefault()
       e.stopPropagation()
-      this.onRevert(this.diff.changeId)
+      this.onRevert(this.diff.id)
     }
 
     buttons.appendChild(acceptBtn)
@@ -205,10 +203,7 @@ class SuggestedChangeWidget extends WidgetType {
   }
 
   eq(other: SuggestedChangeWidget) {
-    return (
-      this.diff.id === other.diff.id &&
-      this.diff.changeId === other.diff.changeId
-    )
+    return this.diff.id === other.diff.id
   }
 
   get estimatedHeight() {
@@ -237,9 +232,10 @@ function buildSuggestedChangesDecorations(
     if (realFrom < realTo) {
       decorations.push(
         Decoration.mark({
-          class: 'ol-cm-suggested-change-insert ol-cm-suggested-change-hoverable',
+          class:
+            'ol-cm-suggested-change-insert ol-cm-suggested-change-hoverable',
           attributes: {
-            'data-change-id': diff.changeId,
+            'data-change-id': diff.id,
           },
         }).range(realFrom, realTo)
       )
@@ -249,7 +245,7 @@ function buildSuggestedChangesDecorations(
     if (diff.userText) {
       decorations.push(
         Decoration.widget({
-          widget: new UserTextWidget(diff.userText, diff.changeId),
+          widget: new UserTextWidget(diff.userText, diff.id),
           side: -1,
         }).range(realFrom)
       )

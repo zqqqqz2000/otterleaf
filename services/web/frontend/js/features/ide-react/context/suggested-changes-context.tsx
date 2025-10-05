@@ -6,22 +6,8 @@ import React, {
   ReactNode,
   useRef,
 } from 'react'
-
-// Applied change record - tracks changes applied to real document
-export interface AppliedChange {
-  id: string
-  timestamp: number
-  // Position in USER document where the change was applied
-  userDocFrom: number
-  userDocTo: number
-  // The text in user document that was replaced
-  userDocText: string
-  // The new text that was inserted in real document
-  insertedText: string
-  // Position in REAL document after applying the change
-  realDocFrom: number
-  realDocTo: number
-}
+import * as diff from 'diff'
+import { useCodeMirrorViewContext } from '@/features/source-editor/components/codemirror-context'
 
 // Diff entry representing difference between user and real document
 export interface DiffEntry {
@@ -30,46 +16,35 @@ export interface DiffEntry {
   userFrom: number
   userTo: number
   userText: string
-  // Position in real document  
+  // Position in real document
   realFrom: number
   realTo: number
   realText: string
-  // Reference to the applied change that caused this diff
-  changeId: string
+  // Type of change: 'insert', 'delete', or 'replace'
+  type: 'insert' | 'delete' | 'replace'
 }
 
 // Context interface with new dual-document architecture
 interface SuggestedChangesContextValue {
   // User document: baseline document from user's perspective
   userDocument: string
-  // Applied changes that were made to real document
-  appliedChanges: AppliedChange[]
   // Computed diffs between user and real document
   diffs: DiffEntry[]
-  // Apply a suggested change to real document (returns change ID)
-  applySuggestedChange: (
-    userDocFrom: number,
-    userDocTo: number,
-    text: string
-  ) => string
   // Accept a change: sync this change from real document to user document (update baseline)
   acceptChange: (changeId: string) => void
   // Revert a change: restore real document to match user document (undo the change)
   revertChange: (changeId: string) => void
   // Clear all changes
   clearAllChanges: () => void
+  setRealDocument: (content: string) => void
   // Set the user document baseline
   setUserDocument: (content: string) => void
-  // Update real document content (called when CodeMirror changes)
-  setRealDocument: (content: string) => void
   // Get callback to apply change to CodeMirror
-  getApplyToEditorCallback: () => ((change: AppliedChange) => void) | null
-  setApplyToEditorCallback: (callback: (change: AppliedChange) => void) => void
+  getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
+  setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
   // Get callback to revert change from CodeMirror
-  getRevertFromEditorCallback: () => ((change: AppliedChange) => void) | null
-  setRevertFromEditorCallback: (
-    callback: (change: AppliedChange) => void
-  ) => void
+  getRevertFromEditorCallback: () => ((diff: DiffEntry) => void) | null
+  setRevertFromEditorCallback: (callback: (diff: DiffEntry) => void) => void
 }
 
 const SuggestedChangesContext =
@@ -94,265 +69,136 @@ export function SuggestedChangesProvider({
 }: SuggestedChangesProviderProps) {
   // User document: the baseline from user's perspective
   const [userDocument, setUserDocument] = useState<string>('')
-  // Applied changes that modified the real document
-  const [appliedChanges, setAppliedChanges] = useState<AppliedChange[]>([])
+  const view = useCodeMirrorViewContext()
   // Current real document content
-  const [realDocument, setRealDocument] = useState<string>('')
-  
+  const setRealDocument = (docContent: string) => {
+    const realDocument = view.state.doc.toString()
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: realDocument.length,
+        insert: docContent,
+      },
+    })
+  }
+
   // Callbacks to interact with CodeMirror editor
-  const applyToEditorCallbackRef = useRef<((change: AppliedChange) => void) | null>(null)
-  const revertFromEditorCallbackRef = useRef<((change: AppliedChange) => void) | null>(null)
+  const applyToEditorCallbackRef = useRef<((diff: DiffEntry) => void) | null>(
+    null
+  )
+  const revertFromEditorCallbackRef = useRef<
+    ((diff: DiffEntry) => void) | null
+  >(null)
 
-  // Generate unique ID
-  const generateId = useCallback(() => {
-    return `change_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-  }, [])
-
-  // Map user document position to real document position
-  const mapUserPosToRealPos = useCallback((userPos: number): number => {
-    let realPos = userPos
-    
-    // Apply all changes that come before this position
-    for (const change of appliedChanges) {
-      if (change.userDocTo <= userPos) {
-        // This change is completely before userPos, adjust position
-        const lengthDiff = change.insertedText.length - (change.userDocTo - change.userDocFrom)
-        realPos += lengthDiff
-      } else if (change.userDocFrom < userPos) {
-        // userPos is inside this change range
-        // Map to the corresponding position in the inserted text
-        const offsetInChange = userPos - change.userDocFrom
-        const userLength = change.userDocTo - change.userDocFrom
-        const realLength = change.insertedText.length
-        
-        // Proportional mapping
-        const proportionalOffset = Math.round((offsetInChange / userLength) * realLength)
-        realPos = change.realDocFrom + proportionalOffset
-        return realPos
-      }
-    }
-    
-    return realPos
-  }, [appliedChanges])
-
-  // Compute diffs between user document and real document
+  // Compute diffs between user document and real document using diff library
   const computeDiffs = useCallback((): DiffEntry[] => {
+    const realDocument = view.state.doc.toString()
+    if (userDocument === undefined || realDocument === undefined) {
+      return []
+    }
+
     const diffs: DiffEntry[] = []
-    
-    // Sort applied changes by position in user document
-    const sortedChanges = [...appliedChanges].sort((a, b) => a.userDocFrom - b.userDocFrom)
-    
+    const changes = diff.diffChars(userDocument, realDocument)
+
     let userPos = 0
     let realPos = 0
-    
-    for (const change of sortedChanges) {
-      // Verify positions are in sync up to this change
-      // Skip unchanged regions before this change
-      if (change.userDocFrom > userPos) {
-        const unchangedLength = change.userDocFrom - userPos
-        userPos = change.userDocFrom
-        realPos += unchangedLength
+    let diffId = 0
+
+    for (const change of changes) {
+      if (change.added) {
+        // Text was added to real document (not in user document)
+        const diffEntry: DiffEntry = {
+          id: `diff_${diffId++}`,
+          userFrom: userPos,
+          userTo: userPos,
+          userText: '',
+          realFrom: realPos,
+          realTo: realPos + change.value.length,
+          realText: change.value,
+          type: 'insert',
+        }
+        diffs.push(diffEntry)
+        realPos += change.value.length
+      } else if (change.removed) {
+        // Text was removed from user document (not in real document)
+        const diffEntry: DiffEntry = {
+          id: `diff_${diffId++}`,
+          userFrom: userPos,
+          userTo: userPos + change.value.length,
+          userText: change.value,
+          realFrom: realPos,
+          realTo: realPos,
+          realText: '',
+          type: 'delete',
+        }
+        diffs.push(diffEntry)
+        userPos += change.value.length
+      } else {
+        // Text is the same in both documents
+        userPos += change.value.length
+        realPos += change.value.length
       }
-      
-      // Create diff entry for this change
-      const diff: DiffEntry = {
-        id: generateId(),
-        userFrom: change.userDocFrom,
-        userTo: change.userDocTo,
-        userText: change.userDocText,
-        realFrom: realPos,
-        realTo: realPos + change.insertedText.length,
-        realText: change.insertedText,
-        changeId: change.id,
-      }
-      diffs.push(diff)
-      
-      // Update positions
-      userPos = change.userDocTo
-      realPos += change.insertedText.length
     }
-    
+
     return diffs
-  }, [appliedChanges, generateId])
+  }, [userDocument])
 
   const diffs = computeDiffs()
-
-  // Apply a suggested change to the real document
-  const applySuggestedChange = useCallback(
-    (userDocFrom: number, userDocTo: number, text: string): string => {
-      const changeId = generateId()
-      
-      // Calculate position in real document
-      // Need to account for all previous changes
-      let realFrom = userDocFrom
-      let realTo = userDocTo
-      
-      // Check for overlapping changes and handle them
-      const overlappingChanges: AppliedChange[] = []
-      
-      for (const prevChange of appliedChanges) {
-        if (prevChange.userDocTo <= userDocFrom) {
-          // Previous change is before this one
-          const lengthDiff = prevChange.insertedText.length - (prevChange.userDocTo - prevChange.userDocFrom)
-          realFrom += lengthDiff
-          realTo += lengthDiff
-        } else if (prevChange.userDocFrom < userDocTo && prevChange.userDocTo > userDocFrom) {
-          // Previous change overlaps with this range
-          overlappingChanges.push(prevChange)
-        }
-      }
-      
-      if (overlappingChanges.length > 0) {
-        // New change replaces/covers overlapping changes
-        console.log('New change replaces overlapping changes:', overlappingChanges)
-        
-        // Map user document range to real document range
-        const replaceRealFrom = mapUserPosToRealPos(userDocFrom)
-        const replaceRealTo = mapUserPosToRealPos(userDocTo)
-        
-        const change: AppliedChange = {
-          id: changeId,
-          timestamp: Date.now(),
-          userDocFrom,
-          userDocTo,
-          userDocText: userDocument.slice(userDocFrom, userDocTo),
-          insertedText: text,
-          realDocFrom: replaceRealFrom,
-          realDocTo: replaceRealFrom + text.length,
-        }
-        
-        // Remove overlapping changes and add new change
-        setAppliedChanges(prev => [
-          ...prev.filter(c => !overlappingChanges.includes(c)),
-          change
-        ])
-        
-        // Apply to CodeMirror editor
-        const callback = applyToEditorCallbackRef.current
-        if (callback) {
-          // Replace the range in real document
-          const virtualUserDocLength = replaceRealTo - replaceRealFrom
-          const replaceChange: AppliedChange = {
-            ...change,
-            realDocFrom: replaceRealFrom,
-            userDocText: ' '.repeat(virtualUserDocLength), // dummy text with correct length for replacement
-          }
-          callback(replaceChange)
-        }
-        
-        return changeId
-      }
-      
-      // No overlap, add new change
-      const change: AppliedChange = {
-        id: changeId,
-        timestamp: Date.now(),
-        userDocFrom,
-        userDocTo,
-        userDocText: userDocument.slice(userDocFrom, userDocTo),
-        insertedText: text,
-        realDocFrom: realFrom,
-        realDocTo: realFrom + text.length,
-      }
-      
-      setAppliedChanges(prev => [...prev, change])
-      
-      // Apply to CodeMirror editor
-      const callback = applyToEditorCallbackRef.current
-      if (callback) {
-        callback(change)
-      }
-      
-      return changeId
-    },
-    [userDocument, appliedChanges, generateId, mapUserPosToRealPos]
-  )
+  const realDocument = view.state.doc.toString()
 
   // Accept a change: sync from real document to user document (update baseline)
   const acceptChange = useCallback(
     (changeId: string) => {
-      const change = appliedChanges.find(c => c.id === changeId)
-      if (!change) {
+      const diffEntry = diffs.find(d => d.id === changeId)
+      if (!diffEntry) {
         console.warn(`Change ${changeId} not found`)
         return
       }
-      
-      console.log('Accepting change (syncing to user document):', change)
-      
-      // Update user document to include this change
+
+      console.log('Accepting change (syncing to user document):', diffEntry)
+
+      // Update user document to match real document
       // This makes the change part of the baseline, so the diff disappears
-      const newUserDoc =
-        userDocument.slice(0, change.userDocFrom) +
-        change.insertedText +
-        userDocument.slice(change.userDocTo)
-      
-      // Update positions of other changes
-      const lengthDiff = change.insertedText.length - (change.userDocTo - change.userDocFrom)
-      
-      setUserDocument(newUserDoc)
-      
-      // Remove this change from applied changes
-      setAppliedChanges(prev =>
-        prev
-          .filter(c => c.id !== changeId)
-          .map(c => {
-            if (c.userDocFrom >= change.userDocTo) {
-              // Adjust positions of changes after this one
-              return {
-                ...c,
-                userDocFrom: c.userDocFrom + lengthDiff,
-                userDocTo: c.userDocTo + lengthDiff,
-              }
-            }
-            return c
-          })
-      )
+      setUserDocument(realDocument)
     },
-    [appliedChanges, userDocument]
+    [diffs, realDocument]
   )
 
   // Revert a change: restore real document to match user document (undo)
   const revertChange = useCallback(
     (changeId: string) => {
-      const change = appliedChanges.find(c => c.id === changeId)
-      if (!change) {
+      const diffEntry = diffs.find(d => d.id === changeId)
+      if (!diffEntry) {
         console.warn(`Change ${changeId} not found`)
         return
       }
-      
-      console.log('Reverting change (restoring from user document):', change)
-      
-      // Remove from applied changes
-      setAppliedChanges(prev => prev.filter(c => c.id !== changeId))
-      
+
+      console.log('Reverting change (restoring from user document):', diffEntry)
+
+      // Update real document to match user document
+      setRealDocument(userDocument)
+
       // Revert in CodeMirror editor
       const callback = revertFromEditorCallbackRef.current
       if (callback) {
-        callback(change)
+        callback(diffEntry)
       }
     },
-    [appliedChanges]
+    [diffs, userDocument]
   )
 
   // Clear all changes
   const clearAllChanges = useCallback(() => {
-    // Revert all changes in reverse order
-    const sortedChanges = [...appliedChanges].sort((a, b) => b.realDocFrom - a.realDocFrom)
-    for (const change of sortedChanges) {
-      const callback = revertFromEditorCallbackRef.current
-      if (callback) {
-        callback(change)
-      }
-    }
-    setAppliedChanges([])
-  }, [appliedChanges])
+    // Reset real document to match user document
+    setRealDocument(userDocument)
+  }, [userDocument])
 
   const getApplyToEditorCallback = useCallback(() => {
     return applyToEditorCallbackRef.current
   }, [])
 
   const setApplyToEditorCallback = useCallback(
-    (callback: (change: AppliedChange) => void) => {
+    (callback: (diff: DiffEntry) => void) => {
       applyToEditorCallbackRef.current = callback
     },
     []
@@ -363,7 +209,7 @@ export function SuggestedChangesProvider({
   }, [])
 
   const setRevertFromEditorCallback = useCallback(
-    (callback: (change: AppliedChange) => void) => {
+    (callback: (diff: DiffEntry) => void) => {
       revertFromEditorCallbackRef.current = callback
     },
     []
@@ -371,9 +217,7 @@ export function SuggestedChangesProvider({
 
   const contextValue: SuggestedChangesContextValue = {
     userDocument,
-    appliedChanges,
     diffs,
-    applySuggestedChange,
     acceptChange,
     revertChange,
     clearAllChanges,

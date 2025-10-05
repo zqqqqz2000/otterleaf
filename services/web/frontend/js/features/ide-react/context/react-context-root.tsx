@@ -30,7 +30,6 @@ import { UserFeaturesProvider } from '@/shared/context/user-features-context'
 import { UserSettingsProvider } from '@/shared/context/user-settings-context'
 import { IdeRedesignSwitcherProvider } from './ide-redesign-switcher-context'
 import { CommandRegistryProvider } from './command-registry-context'
-import { SuggestedChangesProvider } from './suggested-changes-context'
 
 export const ReactContextRoot: FC<
   React.PropsWithChildren<{
@@ -68,7 +67,6 @@ export const ReactContextRoot: FC<
     UserSettingsProvider,
     IdeRedesignSwitcherProvider,
     CommandRegistryProvider,
-    SuggestedChangesProvider,
     UserFeaturesProvider,
     ...providers,
   }
@@ -105,9 +103,7 @@ export const ReactContextRoot: FC<
                                                             <Providers.OutlineProvider>
                                                               <Providers.IdeRedesignSwitcherProvider>
                                                                 <Providers.CommandRegistryProvider>
-                                                                  <Providers.SuggestedChangesProvider>
-                                                                    {children}
-                                                                  </Providers.SuggestedChangesProvider>
+                                                                  {children}
                                                                 </Providers.CommandRegistryProvider>
                                                               </Providers.IdeRedesignSwitcherProvider>
                                                             </Providers.OutlineProvider>

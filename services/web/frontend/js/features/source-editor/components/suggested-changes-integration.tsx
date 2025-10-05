@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from 'react'
 import { useCodeMirrorViewContext } from './codemirror-context'
 import {
   useSuggestedChanges,
-  AppliedChange,
+  DiffEntry,
 } from '../../ide-react/context/suggested-changes-context'
 import { setGlobalSuggestedChangesContext } from '../../ide-react/api/editor-api'
 import { updateSuggestedChanges } from '../extensions/suggested-changes'
@@ -23,34 +23,59 @@ export function SuggestedChangesIntegration() {
     return () => {
       setGlobalSuggestedChangesContext(null)
     }
-  }, [suggestedChangesContext])
+  }, [])
 
   // Initialize user document when editor loads
   useEffect(() => {
     if (view && view.state.doc) {
       const currentContent = view.state.doc.toString()
-      if (currentContent !== suggestedChangesContext.userDocument && !isApplyingChangeRef.current) {
+      if (
+        currentContent !== suggestedChangesContext.userDocument &&
+        !isApplyingChangeRef.current
+      ) {
         suggestedChangesContext.setUserDocument(currentContent)
+        suggestedChangesContext.setRealDocument(currentContent)
       }
     }
-  }, [view, suggestedChangesContext])
+  }, [])
 
   // Callback to apply a change to CodeMirror editor
   const applyToEditor = useCallback(
-    (change: AppliedChange) => {
+    (diff: DiffEntry) => {
       if (!view) return
 
-      console.log('Applying change to editor:', change)
+      console.log('Applying change to editor:', diff)
       isApplyingChangeRef.current = true
 
       try {
-        view.dispatch({
-          changes: {
-            from: change.realDocFrom,
-            to: change.realDocFrom + change.userDocText.length,
-            insert: change.insertedText,
-          },
-        })
+        if (diff.type === 'insert') {
+          // Insert text at the specified position
+          view.dispatch({
+            changes: {
+              from: diff.realFrom,
+              to: diff.realFrom,
+              insert: diff.realText,
+            },
+          })
+        } else if (diff.type === 'delete') {
+          // Delete text at the specified position
+          view.dispatch({
+            changes: {
+              from: diff.realFrom,
+              to: diff.realTo,
+              insert: '',
+            },
+          })
+        } else if (diff.type === 'replace') {
+          // Replace text at the specified position
+          view.dispatch({
+            changes: {
+              from: diff.realFrom,
+              to: diff.realTo,
+              insert: diff.realText,
+            },
+          })
+        }
       } finally {
         isApplyingChangeRef.current = false
       }
@@ -60,52 +85,54 @@ export function SuggestedChangesIntegration() {
 
   // Callback to revert a change from CodeMirror editor
   const revertFromEditor = useCallback(
-    (change: AppliedChange) => {
+    (diff: DiffEntry) => {
       if (!view) return
 
-      console.log('Reverting change from editor:', change)
+      console.log('Reverting change from editor:', diff)
       isApplyingChangeRef.current = true
 
       try {
-        // Calculate current position in real document
-        // Need to account for other changes that might have shifted positions
-        const allChanges = suggestedChangesContext.appliedChanges
-        let currentRealFrom = change.realDocFrom
-        let currentRealTo = change.realDocTo
-
-        // Adjust for other changes applied after this one
-        for (const otherChange of allChanges) {
-          if (otherChange.id === change.id) continue
-          if (otherChange.timestamp > change.timestamp) {
-            if (otherChange.realDocFrom <= currentRealFrom) {
-              const lengthDiff =
-                otherChange.insertedText.length -
-                (otherChange.userDocTo - otherChange.userDocFrom)
-              currentRealFrom += lengthDiff
-              currentRealTo += lengthDiff
-            }
-          }
+        if (diff.type === 'insert') {
+          // Remove the inserted text
+          view.dispatch({
+            changes: {
+              from: diff.realFrom,
+              to: diff.realTo,
+              insert: '',
+            },
+          })
+        } else if (diff.type === 'delete') {
+          // Restore the deleted text
+          view.dispatch({
+            changes: {
+              from: diff.realFrom,
+              to: diff.realFrom,
+              insert: diff.userText,
+            },
+          })
+        } else if (diff.type === 'replace') {
+          // Restore the original text
+          view.dispatch({
+            changes: {
+              from: diff.realFrom,
+              to: diff.realTo,
+              insert: diff.userText,
+            },
+          })
         }
-
-        view.dispatch({
-          changes: {
-            from: currentRealFrom,
-            to: currentRealTo,
-            insert: change.userDocText,
-          },
-        })
       } finally {
         isApplyingChangeRef.current = false
       }
     },
-    [view, suggestedChangesContext.appliedChanges]
+    [view]
   )
 
   // Register callbacks with context
   useEffect(() => {
     suggestedChangesContext.setApplyToEditorCallback(applyToEditor)
     suggestedChangesContext.setRevertFromEditorCallback(revertFromEditor)
-  }, [suggestedChangesContext, applyToEditor, revertFromEditor])
+    console.log(suggestedChangesContext, 'slkxjfsd')
+  }, [])
 
   // Handle accept change (user clicked accept button)
   const handleAcceptChange = useCallback(
@@ -135,7 +162,7 @@ export function SuggestedChangesIntegration() {
         handleRevertChange
       )
     }
-  }, [view, suggestedChangesContext.diffs, handleAcceptChange, handleRevertChange])
+  }, [view, JSON.stringify(suggestedChangesContext.diffs)])
 
   return null // Logic component, no UI
 }

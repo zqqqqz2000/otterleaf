@@ -1,6 +1,6 @@
 import { EditorView } from '@codemirror/view'
 import { debugConsole } from '@/utils/debugging'
-import { AppliedChange, DiffEntry } from '../context/suggested-changes-context'
+import { DiffEntry } from '../context/suggested-changes-context'
 
 // 定义API事件类型
 export interface EditorApiEvents {
@@ -34,12 +34,12 @@ export interface EditorApiEvents {
     from: number
     to: number
     text: string
-    suggestedOnly?: boolean  // 新增：是否仅创建建议修改
+    suggestedOnly?: boolean // 新增：是否仅创建建议修改
   }
   'editor:replaceText:response': {
     requestId: string
     success: boolean
-    changeId?: string  // 新增：建议修改的ID
+    changeId?: string // 新增：建议修改的ID
     error?: string
   }
   'editor:suggestChange': {
@@ -74,18 +74,17 @@ export interface EditorApiEvents {
   }
   'editor:getDocument': {
     requestId: string
-    includeChanges?: boolean  // 新增：是否包含建议修改
+    includeChanges?: boolean // 新增：是否包含建议修改
   }
   'editor:getDocument:response': {
     requestId: string
     success: boolean
     data?: {
       content: string
-      userDocument?: string  // User's baseline document
-      realDocument?: string  // Real document with applied changes
+      userDocument?: string // User's baseline document
+      realDocument?: string // Real document with applied changes
       length: number
-      appliedChanges?: AppliedChange[]  // Applied changes list
-      diffs?: DiffEntry[]  // Computed diffs
+      diffs?: DiffEntry[] // Computed diffs
     }
     error?: string
   }
@@ -104,23 +103,19 @@ export interface EditorApiEvents {
 let globalEditorView: EditorView | null = null
 
 // 全局编译上下文引用
-let globalCompileContext: { startCompile: (options?: any) => void } | null = null
+let globalCompileContext: { startCompile: (options?: any) => void } | null =
+  null
 
 // Global suggested changes context reference
 let globalSuggestedChangesContext: {
   userDocument: string
-  appliedChanges: AppliedChange[]
   diffs: DiffEntry[]
-  applySuggestedChange: (userDocFrom: number, userDocTo: number, text: string) => string
   acceptChange: (changeId: string) => void
   revertChange: (changeId: string) => void
-  clearAllChanges: () => void
   setUserDocument: (content: string) => void
   setRealDocument: (content: string) => void
-  getApplyToEditorCallback: () => ((change: AppliedChange) => void) | null
-  setApplyToEditorCallback: (callback: (change: AppliedChange) => void) => void
-  getRevertFromEditorCallback: () => ((change: AppliedChange) => void) | null
-  setRevertFromEditorCallback: (callback: (change: AppliedChange) => void) => void
+  getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
+  setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
 } | null = null
 
 // 设置全局编辑器视图
@@ -129,26 +124,25 @@ export function setGlobalEditorView(view: EditorView | null) {
 }
 
 // 设置全局编译上下文
-export function setGlobalCompileContext(context: { startCompile: (options?: any) => void } | null) {
+export function setGlobalCompileContext(
+  context: { startCompile: (options?: any) => void } | null
+) {
   globalCompileContext = context
 }
 
 // Set global suggested changes context reference
-export function setGlobalSuggestedChangesContext(context: {
-  userDocument: string
-  appliedChanges: AppliedChange[]
-  diffs: DiffEntry[]
-  applySuggestedChange: (userDocFrom: number, userDocTo: number, text: string) => string
-  acceptChange: (changeId: string) => void
-  revertChange: (changeId: string) => void
-  clearAllChanges: () => void
-  setUserDocument: (content: string) => void
-  setRealDocument: (content: string) => void
-  getApplyToEditorCallback: () => ((change: AppliedChange) => void) | null
-  setApplyToEditorCallback: (callback: (change: AppliedChange) => void) => void
-  getRevertFromEditorCallback: () => ((change: AppliedChange) => void) | null
-  setRevertFromEditorCallback: (callback: (change: AppliedChange) => void) => void
-} | null) {
+export function setGlobalSuggestedChangesContext(
+  context: {
+    userDocument: string
+    diffs: DiffEntry[]
+    acceptChange: (changeId: string) => void
+    revertChange: (changeId: string) => void
+    setUserDocument: (content: string) => void
+    setRealDocument: (content: string) => void
+    getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
+    setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
+  } | null
+) {
   globalSuggestedChangesContext = context
 }
 
@@ -232,12 +226,22 @@ function setSelection(from: number, to: number): boolean {
 }
 
 // Replace text (supports suggested mode)
-function replaceText(from: number, to: number, text: string, suggestedOnly: boolean = false): boolean | string {
+function replaceText(
+  from: number,
+  to: number,
+  text: string,
+  suggestedOnly: boolean = false
+): boolean | string {
+  const view = getEditorView()
   if (suggestedOnly && globalSuggestedChangesContext) {
-    // Suggested mode: apply change to real document and track it
+    // Suggested mode: update real document with the suggested change
     try {
-      const changeId = globalSuggestedChangesContext.applySuggestedChange(from, to, text)
-      return changeId
+      const currentContent = view?.state?.doc?.toString?.() ?? ''
+      const newContent =
+        currentContent.slice(0, from) + text + currentContent.slice(to)
+      globalSuggestedChangesContext.setRealDocument(newContent)
+
+      return 'suggested_change_applied'
     } catch (error) {
       debugConsole.error('Failed to create suggested change:', error)
       return false
@@ -245,7 +249,6 @@ function replaceText(from: number, to: number, text: string, suggestedOnly: bool
   }
 
   // Direct modification mode
-  const view = getEditorView()
   if (!view) {
     return false
   }
@@ -274,9 +277,16 @@ function suggestChange(from: number, to: number, text: string): string | null {
   if (!globalSuggestedChangesContext) {
     return null
   }
+  const view = getEditorView()
 
   try {
-    return globalSuggestedChangesContext.applySuggestedChange(from, to, text)
+    // Update real document with the suggested change
+    const currentContent = view?.state?.doc?.toString?.() ?? ''
+    const newContent =
+      currentContent.slice(0, from) + text + currentContent.slice(to)
+    globalSuggestedChangesContext.setRealDocument(newContent)
+
+    return 'suggested_change_applied'
   } catch (error) {
     debugConsole.error('Failed to create suggested change:', error)
     return null
@@ -314,12 +324,11 @@ function rejectChange(changeId: string): boolean {
 }
 
 // Get document content (with option to include changes info)
-function getDocument(includeChanges: boolean = true): { 
+function getDocument(includeChanges: boolean = true): {
   content: string
   userDocument?: string
   realDocument?: string
   length: number
-  appliedChanges?: AppliedChange[]
   diffs?: DiffEntry[]
 } | null {
   const view = getEditorView()
@@ -328,23 +337,23 @@ function getDocument(includeChanges: boolean = true): {
   }
 
   const realDocument = view.state.doc.toString()
-  
+
   if (includeChanges && globalSuggestedChangesContext) {
     // Return with changes information
     return {
-      content: realDocument,  // Real document is the current content
+      content: realDocument, // Real document is the current content
       userDocument: globalSuggestedChangesContext.userDocument,
       realDocument,
       length: realDocument.length,
-      appliedChanges: globalSuggestedChangesContext.appliedChanges,
       diffs: globalSuggestedChangesContext.diffs,
     }
   }
 
   // Return basic version (for compilation, use user document)
-  const userDocument = globalSuggestedChangesContext?.userDocument || realDocument
+  const userDocument =
+    globalSuggestedChangesContext?.userDocument || realDocument
   return {
-    content: userDocument,  // For compilation, use user document (baseline)
+    content: userDocument, // For compilation, use user document (baseline)
     length: userDocument.length,
   }
 }
@@ -372,7 +381,8 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:setSelection': {
-      const { requestId, from, to } = detail as EditorApiEvents['editor:setSelection']
+      const { requestId, from, to } =
+        detail as EditorApiEvents['editor:setSelection']
       const success = setSelection(from, to)
 
       const response: EditorApiEvents['editor:setSelection:response'] = {
@@ -388,7 +398,8 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:replaceText': {
-      const { requestId, from, to, text, suggestedOnly } = detail as EditorApiEvents['editor:replaceText']
+      const { requestId, from, to, text, suggestedOnly } =
+        detail as EditorApiEvents['editor:replaceText']
       const result = replaceText(from, to, text, suggestedOnly)
 
       const response: EditorApiEvents['editor:replaceText:response'] = {
@@ -405,14 +416,16 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:suggestChange': {
-      const { requestId, from, to, text } = detail as EditorApiEvents['editor:suggestChange']
+      const { requestId, from, to, text } =
+        detail as EditorApiEvents['editor:suggestChange']
       const changeId = suggestChange(from, to, text)
 
       const response: EditorApiEvents['editor:suggestChange:response'] = {
         requestId,
         success: changeId !== null,
         changeId: changeId || undefined,
-        error: changeId === null ? 'Failed to create suggested change' : undefined,
+        error:
+          changeId === null ? 'Failed to create suggested change' : undefined,
       }
 
       window.dispatchEvent(
@@ -422,7 +435,8 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:acceptChange': {
-      const { requestId, changeId } = detail as EditorApiEvents['editor:acceptChange']
+      const { requestId, changeId } =
+        detail as EditorApiEvents['editor:acceptChange']
       const success = acceptChange(changeId)
 
       const response: EditorApiEvents['editor:acceptChange:response'] = {
@@ -438,7 +452,8 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:rejectChange': {
-      const { requestId, changeId } = detail as EditorApiEvents['editor:rejectChange']
+      const { requestId, changeId } =
+        detail as EditorApiEvents['editor:rejectChange']
       const success = rejectChange(changeId)
 
       const response: EditorApiEvents['editor:rejectChange:response'] = {
@@ -454,7 +469,8 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:getDocument': {
-      const { requestId, includeChanges } = detail as EditorApiEvents['editor:getDocument']
+      const { requestId, includeChanges } =
+        detail as EditorApiEvents['editor:getDocument']
       const document = getDocument(includeChanges)
 
       const response: EditorApiEvents['editor:getDocument:response'] = {
@@ -471,8 +487,9 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:recompile': {
-      const { requestId, options } = detail as EditorApiEvents['editor:recompile']
-      
+      const { requestId, options } =
+        detail as EditorApiEvents['editor:recompile']
+
       if (!globalCompileContext) {
         const response: EditorApiEvents['editor:recompile:response'] = {
           requestId,
@@ -490,9 +507,9 @@ function handleApiEvent(event: CustomEvent) {
         // 这里可以通过 options 传递特殊标记来指示使用原始内容
         const compileOptions = {
           ...options,
-          useOriginalContent: true  // 标记使用原始内容进行编译
+          useOriginalContent: true, // 标记使用原始内容进行编译
         }
-        
+
         globalCompileContext.startCompile(compileOptions)
         const response: EditorApiEvents['editor:recompile:response'] = {
           requestId,
@@ -563,162 +580,255 @@ export function cleanupEditorApi() {
 // 导出便捷方法供外部使用
 export const editorApi = {
   // 获取选中文本
-  getSelection: (): Promise<EditorApiEvents['editor:getSelection:response']['data']> => {
-    return new Promise((resolve) => {
+  getSelection: (): Promise<
+    EditorApiEvents['editor:getSelection:response']['data']
+  > => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:getSelection:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:getSelection:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:getSelection:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:getSelection:response',
+            handleResponse as EventListener
+          )
           resolve(detail.data)
         }
       }
 
-      window.addEventListener('editor:getSelection:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:getSelection', {
-        detail: { requestId }
-      }))
+      window.addEventListener(
+        'editor:getSelection:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:getSelection', {
+          detail: { requestId },
+        })
+      )
     })
   },
 
   // 设置选中文本
   setSelection: (from: number, to: number): Promise<boolean> => {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:setSelection:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:setSelection:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:setSelection:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:setSelection:response',
+            handleResponse as EventListener
+          )
           resolve(detail.success)
         }
       }
 
-      window.addEventListener('editor:setSelection:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:setSelection', {
-        detail: { requestId, from, to }
-      }))
+      window.addEventListener(
+        'editor:setSelection:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:setSelection', {
+          detail: { requestId, from, to },
+        })
+      )
     })
   },
 
   // 替换文本
-  replaceText: (from: number, to: number, text: string, suggestedOnly?: boolean): Promise<{ success: boolean; changeId?: string }> => {
-    return new Promise((resolve) => {
+  replaceText: (
+    from: number,
+    to: number,
+    text: string,
+    suggestedOnly?: boolean
+  ): Promise<{ success: boolean; changeId?: string }> => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:replaceText:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:replaceText:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:replaceText:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:replaceText:response',
+            handleResponse as EventListener
+          )
           resolve({ success: detail.success, changeId: detail.changeId })
         }
       }
 
-      window.addEventListener('editor:replaceText:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:replaceText', {
-        detail: { requestId, from, to, text, suggestedOnly }
-      }))
+      window.addEventListener(
+        'editor:replaceText:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:replaceText', {
+          detail: { requestId, from, to, text, suggestedOnly },
+        })
+      )
     })
   },
 
   // 创建建议修改
-  suggestChange: (from: number, to: number, text: string): Promise<{ success: boolean; changeId?: string }> => {
-    return new Promise((resolve) => {
+  suggestChange: (
+    from: number,
+    to: number,
+    text: string
+  ): Promise<{ success: boolean; changeId?: string }> => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:suggestChange:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:suggestChange:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:suggestChange:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:suggestChange:response',
+            handleResponse as EventListener
+          )
           resolve({ success: detail.success, changeId: detail.changeId })
         }
       }
 
-      window.addEventListener('editor:suggestChange:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:suggestChange', {
-        detail: { requestId, from, to, text }
-      }))
+      window.addEventListener(
+        'editor:suggestChange:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:suggestChange', {
+          detail: { requestId, from, to, text },
+        })
+      )
     })
   },
 
   // 接受建议修改
   acceptChange: (changeId: string): Promise<boolean> => {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:acceptChange:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:acceptChange:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:acceptChange:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:acceptChange:response',
+            handleResponse as EventListener
+          )
           resolve(detail.success)
         }
       }
 
-      window.addEventListener('editor:acceptChange:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:acceptChange', {
-        detail: { requestId, changeId }
-      }))
+      window.addEventListener(
+        'editor:acceptChange:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:acceptChange', {
+          detail: { requestId, changeId },
+        })
+      )
     })
   },
 
   // 拒绝建议修改
   rejectChange: (changeId: string): Promise<boolean> => {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:rejectChange:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:rejectChange:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:rejectChange:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:rejectChange:response',
+            handleResponse as EventListener
+          )
           resolve(detail.success)
         }
       }
 
-      window.addEventListener('editor:rejectChange:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:rejectChange', {
-        detail: { requestId, changeId }
-      }))
+      window.addEventListener(
+        'editor:rejectChange:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:rejectChange', {
+          detail: { requestId, changeId },
+        })
+      )
     })
   },
 
   // 获取文档内容
-  getDocument: (includeChanges?: boolean): Promise<EditorApiEvents['editor:getDocument:response']['data']> => {
-    return new Promise((resolve) => {
+  getDocument: (
+    includeChanges?: boolean
+  ): Promise<EditorApiEvents['editor:getDocument:response']['data']> => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:getDocument:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:getDocument:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:getDocument:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:getDocument:response',
+            handleResponse as EventListener
+          )
           resolve(detail.data)
         }
       }
 
-      window.addEventListener('editor:getDocument:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:getDocument', {
-        detail: { requestId, includeChanges }
-      }))
+      window.addEventListener(
+        'editor:getDocument:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:getDocument', {
+          detail: { requestId, includeChanges },
+        })
+      )
     })
   },
 
   // 重新编译
   recompile: (options?: any): Promise<boolean> => {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const requestId = generateRequestId()
 
       const handleResponse = (event: CustomEvent) => {
-        const { detail } = event as { detail: EditorApiEvents['editor:recompile:response'] }
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:recompile:response']
+        }
         if (detail.requestId === requestId) {
-          window.removeEventListener('editor:recompile:response', handleResponse as EventListener)
+          window.removeEventListener(
+            'editor:recompile:response',
+            handleResponse as EventListener
+          )
           resolve(detail.success)
         }
       }
 
-      window.addEventListener('editor:recompile:response', handleResponse as EventListener)
-      window.dispatchEvent(new CustomEvent('editor:recompile', {
-        detail: { requestId, options }
-      }))
+      window.addEventListener(
+        'editor:recompile:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:recompile', {
+          detail: { requestId, options },
+        })
+      )
     })
   },
 }
