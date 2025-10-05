@@ -77,15 +77,25 @@ class SuggestedChangeWidget extends WidgetType {
   constructor(
     private diff: DiffEntry,
     private onAccept: (changeId: string) => void,
-    private onRevert: (changeId: string) => void
+    private onRevert: (changeId: string) => void,
+    private view: EditorView
   ) {
     super()
   }
 
   toDOM() {
+    // 检测修改位置是否在前三行
+    const isInTopThreeLines = this.isInTopThreeLines()
+
     const container = document.createElement('div')
     container.className = 'ol-cm-suggested-change-widget'
     container.setAttribute('data-widget-change-id', this.diff.id)
+
+    // 根据位置调整弹出方向
+    if (isInTopThreeLines) {
+      container.setAttribute('data-top-three-lines', 'true')
+    }
+
     container.style.cssText = `
       text-indent: 0;
       overflow: hidden;
@@ -100,7 +110,6 @@ class SuggestedChangeWidget extends WidgetType {
       font-size: 12px !important;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
       z-index: 1000 !important;
-      top: -35px !important;
       left: 0 !important;
       pointer-events: auto !important;
     `
@@ -215,6 +224,18 @@ class SuggestedChangeWidget extends WidgetType {
   ignoreEvent() {
     return false
   }
+
+  // 检测修改位置是否在前三行
+  private isInTopThreeLines(): boolean {
+    try {
+      const doc = this.view.state.doc
+      const line = doc.lineAt(this.diff.realFrom)
+      return line.number <= 3
+    } catch (error) {
+      // 如果获取行号失败，默认返回false（在上方显示）
+      return false
+    }
+  }
 }
 
 // Build suggested changes decorations based on diffs
@@ -254,10 +275,15 @@ function buildSuggestedChangesDecorations(
     }
 
     // Add hover control buttons
-    if (onAccept && onRevert) {
+    if (onAccept && onRevert && currentView) {
       decorations.push(
         Decoration.widget({
-          widget: new SuggestedChangeWidget(diff, onAccept, onRevert),
+          widget: new SuggestedChangeWidget(
+            diff,
+            onAccept,
+            onRevert,
+            currentView
+          ),
           side: 1,
           block: false,
         }).range(Math.max(realFrom, realTo))
@@ -310,6 +336,11 @@ const suggestedChangesTheme = EditorView.baseTheme({
     left: '0',
     transition: 'opacity 0.2s ease-in-out',
     opacity: '0',
+  },
+
+  // 前三行的修改弹出在下方
+  '.ol-cm-suggested-change-widget[data-top-three-lines="true"]': {
+    top: '0px',
   },
 
   '.ol-cm-suggested-change-widget[data-hover-active="true"]': {
@@ -369,6 +400,8 @@ const suggestedChangesTheme = EditorView.baseTheme({
 // 存储当前显示的按钮，用于管理显示状态
 let currentVisibleWidget: HTMLElement | null = null
 let hideTimeout: number | null = null
+// 存储当前的 view 实例
+let currentView: EditorView | null = null
 
 // 鼠标悬停事件处理扩展
 const hoverExtension = EditorView.domEventHandlers({
@@ -443,6 +476,13 @@ export function suggestedChanges(
     ),
     suggestedChangesTheme,
     hoverExtension,
+    // ViewPlugin to provide view context for widgets
+    EditorView.updateListener.of(update => {
+      if (update.view) {
+        // Store view reference for use in widgets
+        currentView = update.view
+      }
+    }),
   ]
 }
 
