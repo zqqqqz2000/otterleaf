@@ -70,6 +70,21 @@ export function SuggestedChangesProvider({
   // User document: the baseline from user's perspective
   const [userDocument, setUserDocument] = useState<string>('')
   const view = useCodeMirrorViewContext()
+
+  // Generate diff id based on diff content using Web Crypto API SHA256 hash first 8 characters
+  const generateDiffId = useCallback(
+    async (diffEntry: Omit<DiffEntry, 'id'>): Promise<string> => {
+      const encoder = new TextEncoder()
+      const data = encoder.encode(JSON.stringify(diffEntry))
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const hashHex = hashArray
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+      return hashHex.substring(0, 8)
+    },
+    []
+  )
   // Current real document content
   const setRealDocument = (docContent: string) => {
     const realDocument = view.state.doc.toString()
@@ -91,135 +106,139 @@ export function SuggestedChangesProvider({
   >(null)
 
   // Merge adjacent diffs to optimize display and reduce complexity
-  const mergeAdjacentDiffs = useCallback((diffs: DiffEntry[]): DiffEntry[] => {
-    if (diffs.length === 0) return []
+  const mergeAdjacentDiffs = useCallback(
+    async (diffs: DiffEntry[]): Promise<DiffEntry[]> => {
+      if (diffs.length === 0) return []
 
-    console.log('=== Merging adjacent diffs ===')
-    console.log('Original diffs count:', diffs.length)
-    console.log('Original diffs:', diffs)
+      console.log('=== Merging adjacent diffs ===')
+      console.log('Original diffs count:', diffs.length)
+      console.log('Original diffs:', diffs)
 
-    const merged: DiffEntry[] = []
-    let current = { ...diffs[0] }
-    let diffId = 0
+      const merged: DiffEntry[] = []
+      let current = { ...diffs[0] }
 
-    for (let i = 1; i < diffs.length; i++) {
-      const next = diffs[i]
+      for (let i = 1; i < diffs.length; i++) {
+        const next = diffs[i]
 
-      // Check if we can merge with the next diff
-      const canMerge =
-        // Adjacent positions
-        (current.realTo === next.realFrom &&
-          current.userTo === next.userFrom) ||
-        // Same position (overlapping)
-        (current.realFrom === next.realFrom &&
-          current.userFrom === next.userFrom)
+        // Check if we can merge with the next diff
+        const canMerge =
+          // Adjacent positions
+          (current.realTo === next.realFrom &&
+            current.userTo === next.userFrom) ||
+          // Same position (overlapping)
+          (current.realFrom === next.realFrom &&
+            current.userFrom === next.userFrom)
 
-      console.log(`Checking merge between diff ${i - 1} and ${i}:`, {
-        current: {
-          type: current.type,
-          userText: current.userText,
-          realText: current.realText,
-        },
-        next: {
-          type: next.type,
-          userText: next.userText,
-          realText: next.realText,
-        },
-        canMerge,
-      })
+        console.log(`Checking merge between diff ${i - 1} and ${i}:`, {
+          current: {
+            type: current.type,
+            userText: current.userText,
+            realText: current.realText,
+          },
+          next: {
+            type: next.type,
+            userText: next.userText,
+            realText: next.realText,
+          },
+          canMerge,
+        })
 
-      if (canMerge) {
-        // Merge insert + delete into replace/update
-        if (
-          (current.type === 'insert' && next.type === 'delete') ||
-          (current.type === 'delete' && next.type === 'insert')
-        ) {
-          console.log('Merging insert+delete into replace')
+        if (canMerge) {
+          // Merge insert + delete into replace/update
+          if (
+            (current.type === 'insert' && next.type === 'delete') ||
+            (current.type === 'delete' && next.type === 'insert')
+          ) {
+            console.log('Merging insert+delete into replace')
 
-          if (current.type === 'delete' && next.type === 'insert') {
-            // current: delete operation (has userText), next: insert operation (has realText)
-            // Keep current.userText, add next.realText, update positions
-            current.realText = next.realText
-            current.realTo = next.realTo
-            current.type = 'replace'
-            // userTo and userFrom should already be correct from current
-          } else {
-            // current: insert operation (has realText), next: delete operation (has userText)
-            // Add next.userText, keep current.realText, update positions
-            current.userText = next.userText
-            current.userTo = next.userTo
-            current.type = 'replace'
-            // realTo and realFrom should already be correct from current
+            if (current.type === 'delete' && next.type === 'insert') {
+              // current: delete operation (has userText), next: insert operation (has realText)
+              // Keep current.userText, add next.realText, update positions
+              current.realText = next.realText
+              current.realTo = next.realTo
+              current.type = 'replace'
+              // userTo and userFrom should already be correct from current
+            } else {
+              // current: insert operation (has realText), next: delete operation (has userText)
+              // Add next.userText, keep current.realText, update positions
+              current.userText = next.userText
+              current.userTo = next.userTo
+              current.type = 'replace'
+              // realTo and realFrom should already be correct from current
+            }
           }
-        }
-        // Merge consecutive inserts
-        else if (current.type === 'insert' && next.type === 'insert') {
-          console.log('Merging consecutive inserts')
-          current.realText += next.realText
-          current.realTo = next.realTo
-        }
-        // Merge consecutive deletes
-        else if (current.type === 'delete' && next.type === 'delete') {
-          console.log('Merging consecutive deletes')
-          current.userText += next.userText
-          current.userTo = next.userTo
-        }
-        // Merge consecutive replaces
-        else if (current.type === 'replace' && next.type === 'replace') {
-          console.log('Merging consecutive replaces')
-          current.userText += next.userText
-          current.realText += next.realText
-          current.userTo = next.userTo
-          current.realTo = next.realTo
-        }
-        // Merge replace with insert/delete
-        else if (
-          current.type === 'replace' &&
-          (next.type === 'insert' || next.type === 'delete')
-        ) {
-          console.log('Merging replace with insert/delete')
-          if (next.type === 'insert') {
+          // Merge consecutive inserts
+          else if (current.type === 'insert' && next.type === 'insert') {
+            console.log('Merging consecutive inserts')
             current.realText += next.realText
             current.realTo = next.realTo
-          } else {
+          }
+          // Merge consecutive deletes
+          else if (current.type === 'delete' && next.type === 'delete') {
+            console.log('Merging consecutive deletes')
             current.userText += next.userText
             current.userTo = next.userTo
           }
+          // Merge consecutive replaces
+          else if (current.type === 'replace' && next.type === 'replace') {
+            console.log('Merging consecutive replaces')
+            current.userText += next.userText
+            current.realText += next.realText
+            current.userTo = next.userTo
+            current.realTo = next.realTo
+          }
+          // Merge replace with insert/delete
+          else if (
+            current.type === 'replace' &&
+            (next.type === 'insert' || next.type === 'delete')
+          ) {
+            console.log('Merging replace with insert/delete')
+            if (next.type === 'insert') {
+              current.realText += next.realText
+              current.realTo = next.realTo
+            } else {
+              current.userText += next.userText
+              current.userTo = next.userTo
+            }
+          }
+          // Merge insert/delete with replace
+          else if (
+            (current.type === 'insert' || current.type === 'delete') &&
+            next.type === 'replace'
+          ) {
+            console.log('Merging insert/delete with replace')
+            current.type = 'replace'
+            current.userText = next.userText
+            current.realText = current.realText || next.realText
+            current.userTo = next.userTo
+            current.realTo = next.realTo
+          }
+        } else {
+          // Cannot merge, push current and start new
+          console.log('Cannot merge, pushing current diff')
+          const { id, ...currentWithoutId } = current
+          current.id = await generateDiffId(currentWithoutId)
+          merged.push(current)
+          current = { ...next }
         }
-        // Merge insert/delete with replace
-        else if (
-          (current.type === 'insert' || current.type === 'delete') &&
-          next.type === 'replace'
-        ) {
-          console.log('Merging insert/delete with replace')
-          current.type = 'replace'
-          current.userText = next.userText
-          current.realText = current.realText || next.realText
-          current.userTo = next.userTo
-          current.realTo = next.realTo
-        }
-      } else {
-        // Cannot merge, push current and start new
-        console.log('Cannot merge, pushing current diff')
-        current.id = `diff_${diffId++}`
-        merged.push(current)
-        current = { ...next }
       }
-    }
 
-    // Push the last diff
-    current.id = `diff_${diffId++}`
-    merged.push(current)
+      // Push the last diff
+      const { id, ...currentWithoutId } = current
+      current.id = await generateDiffId(currentWithoutId)
+      merged.push(current)
 
-    console.log('Merged diffs count:', merged.length)
-    console.log('Merged diffs:', merged)
-    console.log('=== Merge complete ===')
+      console.log('Merged diffs count:', merged.length)
+      console.log('Merged diffs:', merged)
+      console.log('=== Merge complete ===')
 
-    return merged
-  }, [])
+      return merged
+    },
+    [generateDiffId]
+  )
 
   // Compute diffs between user document and real document using diff library
-  const computeDiffs = useCallback((): DiffEntry[] => {
+  const computeDiffs = useCallback(async (): Promise<DiffEntry[]> => {
     const realDocument = view.state.doc.toString()
     if (userDocument === undefined || realDocument === undefined) {
       return []
@@ -235,34 +254,39 @@ export function SuggestedChangesProvider({
 
     let userPos = 0
     let realPos = 0
-    let diffId = 0
 
     for (const change of changes) {
       if (change.added) {
         // Text was added to real document (not in user document)
-        const diffEntry: DiffEntry = {
-          id: `diff_${diffId++}`,
+        const diffEntryWithoutId = {
           userFrom: userPos,
           userTo: userPos,
           userText: '',
           realFrom: realPos,
           realTo: realPos + change.value.length,
           realText: change.value,
-          type: 'insert',
+          type: 'insert' as const,
+        }
+        const diffEntry: DiffEntry = {
+          id: await generateDiffId(diffEntryWithoutId),
+          ...diffEntryWithoutId,
         }
         diffs.push(diffEntry)
         realPos += change.value.length
       } else if (change.removed) {
         // Text was removed from user document (not in real document)
-        const diffEntry: DiffEntry = {
-          id: `diff_${diffId++}`,
+        const diffEntryWithoutId = {
           userFrom: userPos,
           userTo: userPos + change.value.length,
           userText: change.value,
           realFrom: realPos,
           realTo: realPos,
           realText: '',
-          type: 'delete',
+          type: 'delete' as const,
+        }
+        const diffEntry: DiffEntry = {
+          id: await generateDiffId(diffEntryWithoutId),
+          ...diffEntryWithoutId,
         }
         diffs.push(diffEntry)
         userPos += change.value.length
@@ -274,11 +298,25 @@ export function SuggestedChangesProvider({
     }
 
     // Merge adjacent diffs to optimize the result
-    return mergeAdjacentDiffs(diffs)
-  }, [userDocument, view.state.doc.toString(), mergeAdjacentDiffs])
+    return await mergeAdjacentDiffs(diffs)
+  }, [
+    userDocument,
+    view.state.doc.toString(),
+    mergeAdjacentDiffs,
+    generateDiffId,
+  ])
 
-  const diffs = computeDiffs()
+  const [diffs, setDiffs] = useState<DiffEntry[]>([])
   const realDocument = view.state.doc.toString()
+
+  // Update diffs when user document or real document changes
+  React.useEffect(() => {
+    const updateDiffs = async () => {
+      const newDiffs = await computeDiffs()
+      setDiffs(newDiffs)
+    }
+    updateDiffs()
+  }, [computeDiffs])
 
   // Accept a change: sync from real document to user document (update baseline)
   const acceptChange = useCallback(
