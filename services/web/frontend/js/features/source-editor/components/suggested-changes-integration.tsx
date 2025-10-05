@@ -1,6 +1,4 @@
-import React, { useEffect, useCallback } from 'react'
-import { EditorView } from '@codemirror/view'
-import { StateEffect } from '@codemirror/state'
+import { useEffect, useCallback } from 'react'
 import { useCodeMirrorViewContext } from './codemirror-context'
 import { useSuggestedChanges } from '../../ide-react/context/suggested-changes-context'
 import { setGlobalSuggestedChangesContext } from '../../ide-react/api/editor-api'

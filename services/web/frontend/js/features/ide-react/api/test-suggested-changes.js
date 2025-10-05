@@ -156,6 +156,92 @@ window.testSuggestedChanges = {
     }
   },
 
+  // 测试合并功能
+  async testMergeFunctionality() {
+    console.log('=== Testing merge functionality ===')
+    
+    try {
+      // 1. 设置原始文档
+      const originalText = "Hello world, this is a test document."
+      console.log('Original text:', originalText)
+      
+      // 2. 创建第一个修改 (0-5: "Hello" -> "Hi")
+      console.log('Creating first change: "Hello" -> "Hi"')
+      const change1 = await window.overleafEditorApi.suggestChange(0, 5, "Hi")
+      console.log('First change created:', change1)
+      
+      // 等待一下
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // 3. 创建重叠的第二个修改 (3-8: "lo wo" -> "llo")
+      console.log('Creating overlapping change: "lo wo" -> "llo"')
+      const change2 = await window.overleafEditorApi.suggestChange(3, 8, "llo")
+      console.log('Second change created:', change2)
+      
+      // 等待一下
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // 4. 检查合并结果
+      console.log('Checking merge result...')
+      const docWithChanges = await this.getDocument()
+      const originalDoc = await this.getOriginalDocument()
+      
+      console.log('Original document:', originalDoc)
+      console.log('Document with changes:', docWithChanges)
+      
+      // 5. 检查DOM元素数量（应该只有一个合并后的修改）
+      const domCheck = this.checkDOMElements()
+      console.log('DOM elements after merge:', domCheck)
+      
+      return {
+        success: true,
+        change1,
+        change2,
+        originalDoc,
+        docWithChanges,
+        domCheck
+      }
+    } catch (error) {
+      console.error('Merge test failed:', error)
+      return { success: false, error }
+    }
+  },
+
+  // 测试非重叠修改（应该保持分离）
+  async testNonOverlappingChanges() {
+    console.log('=== Testing non-overlapping changes ===')
+    
+    try {
+      const originalText = "Hello world, this is a test document."
+      console.log('Original text:', originalText)
+      
+      // 1. 创建第一个修改 (0-5: "Hello" -> "Hi")
+      console.log('Creating first change: "Hello" -> "Hi"')
+      const change1 = await window.overleafEditorApi.suggestChange(0, 5, "Hi")
+      
+      // 2. 创建非重叠的第二个修改 (13-17: "test" -> "sample")
+      console.log('Creating non-overlapping change: "test" -> "sample"')
+      const change2 = await window.overleafEditorApi.suggestChange(13, 17, "sample")
+      
+      // 等待一下
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // 3. 检查结果
+      const domCheck = this.checkDOMElements()
+      console.log('DOM elements (should be 2 separate changes):', domCheck)
+      
+      return {
+        success: true,
+        change1,
+        change2,
+        domCheck
+      }
+    } catch (error) {
+      console.error('Non-overlapping test failed:', error)
+      return { success: false, error }
+    }
+  },
+
   // 完整测试流程
   async runFullTest() {
     console.log('=== Starting full suggested changes test ===')
@@ -199,4 +285,6 @@ console.log('- acceptChange(changeId)')
 console.log('- rejectChange(changeId)')
 console.log('- checkDOMElements()')
 console.log('- testHoverFunctionality()')
+console.log('- testMergeFunctionality() - 测试合并重叠修改功能')
+console.log('- testNonOverlappingChanges() - 测试非重叠修改功能')
 console.log('- runFullTest()')
