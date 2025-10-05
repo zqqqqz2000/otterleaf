@@ -203,7 +203,7 @@ class SuggestedChangeWidget extends WidgetType {
   }
 
   eq(other: SuggestedChangeWidget) {
-    return this.diff.id === other.diff.id
+    return JSON.stringify(this.diff) === JSON.stringify(other.diff)
   }
 
   get estimatedHeight() {
