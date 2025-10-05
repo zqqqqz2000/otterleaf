@@ -46,41 +46,32 @@ export function SuggestedChangesIntegration() {
 
       console.log('Applying change to editor:', diff)
       isApplyingChangeRef.current = true
+      let userDocument = suggestedChangesContext.userDocument
 
       try {
         if (diff.type === 'insert') {
-          // Insert text at the specified position
-          view.dispatch({
-            changes: {
-              from: diff.realFrom,
-              to: diff.realFrom,
-              insert: diff.realText,
-            },
-          })
+          userDocument =
+            userDocument.slice(0, diff.realFrom) +
+            diff.realText +
+            userDocument.slice(diff.realFrom)
         } else if (diff.type === 'delete') {
-          // Delete text at the specified position
-          view.dispatch({
-            changes: {
-              from: diff.realFrom,
-              to: diff.realTo,
-              insert: '',
-            },
-          })
+          userDocument =
+            userDocument.slice(0, diff.userFrom) +
+            userDocument.slice(diff.userTo)
         } else if (diff.type === 'replace') {
           // Replace text at the specified position
-          view.dispatch({
-            changes: {
-              from: diff.realFrom,
-              to: diff.realTo,
-              insert: diff.realText,
-            },
-          })
+          userDocument =
+            userDocument.slice(0, diff.realFrom) +
+            diff.realText +
+            userDocument.slice(diff.realTo)
         }
+        console.log('set user', userDocument)
+        suggestedChangesContext.setUserDocument(userDocument)
       } finally {
         isApplyingChangeRef.current = false
       }
     },
-    [view]
+    [view, suggestedChangesContext.userDocument, suggestedChangesContext]
   )
 
   // Callback to revert a change from CodeMirror editor
@@ -131,8 +122,7 @@ export function SuggestedChangesIntegration() {
   useEffect(() => {
     suggestedChangesContext.setApplyToEditorCallback(applyToEditor)
     suggestedChangesContext.setRevertFromEditorCallback(revertFromEditor)
-    console.log(suggestedChangesContext, 'slkxjfsd')
-  }, [])
+  }, [applyToEditor, revertFromEditor])
 
   // Handle accept change (user clicked accept button)
   const handleAcceptChange = useCallback(

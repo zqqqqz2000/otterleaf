@@ -98,6 +98,11 @@ export function SuggestedChangesProvider({
     }
 
     const diffs: DiffEntry[] = []
+    console.log(
+      '==============================================================='
+    )
+    console.log('user: ', userDocument)
+    console.log('real: ', realDocument)
     const changes = diff.diffChars(userDocument, realDocument)
 
     let userPos = 0
@@ -157,9 +162,7 @@ export function SuggestedChangesProvider({
 
       console.log('Accepting change (syncing to user document):', diffEntry)
 
-      // Update user document to match real document
-      // This makes the change part of the baseline, so the diff disappears
-      setUserDocument(realDocument)
+      applyToEditorCallbackRef.current?.(diffEntry)
     },
     [diffs, realDocument]
   )
@@ -175,14 +178,7 @@ export function SuggestedChangesProvider({
 
       console.log('Reverting change (restoring from user document):', diffEntry)
 
-      // Update real document to match user document
-      setRealDocument(userDocument)
-
-      // Revert in CodeMirror editor
-      const callback = revertFromEditorCallbackRef.current
-      if (callback) {
-        callback(diffEntry)
-      }
+      revertFromEditorCallbackRef.current?.(diffEntry)
     },
     [diffs, userDocument]
   )
