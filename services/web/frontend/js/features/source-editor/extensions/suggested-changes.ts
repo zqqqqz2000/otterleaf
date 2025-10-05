@@ -87,6 +87,8 @@ class SuggestedChangeWidget extends WidgetType {
     container.className = 'ol-cm-suggested-change-widget'
     container.setAttribute('data-widget-change-id', this.diff.id)
     container.style.cssText = `
+      text-indent: 0;
+      overflow: hidden;
       display: none !important;
       position: absolute !important;
       align-items: center !important;
