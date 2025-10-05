@@ -280,12 +280,6 @@ const suggestedChangesTheme = EditorView.baseTheme({
     backgroundColor: '#e8f5e8',
     color: '#2e7d32',
     fontWeight: 'bold',
-  },
-
-  '.ol-cm-suggested-insert-text': {
-    backgroundColor: '#e8f5e8',
-    color: '#2e7d32',
-    fontWeight: 'bold',
     padding: '1px 2px',
     borderRadius: '2px',
     border: '1px solid #c8e6c9',
