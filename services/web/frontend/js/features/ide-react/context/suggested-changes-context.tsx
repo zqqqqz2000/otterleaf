@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  ReactNode,
+} from 'react'
 
 // 建议修改的数据结构
 export interface SuggestedChange {
@@ -23,12 +29,15 @@ interface SuggestedChangesContextValue {
   setOriginalDocument: (content: string) => void
 }
 
-const SuggestedChangesContext = createContext<SuggestedChangesContextValue | null>(null)
+const SuggestedChangesContext =
+  createContext<SuggestedChangesContextValue | null>(null)
 
 export function useSuggestedChanges() {
   const context = useContext(SuggestedChangesContext)
   if (!context) {
-    throw new Error('useSuggestedChanges must be used within SuggestedChangesProvider')
+    throw new Error(
+      'useSuggestedChanges must be used within SuggestedChangesProvider'
+    )
   }
   return context
 }
@@ -37,8 +46,12 @@ interface SuggestedChangesProviderProps {
   children: ReactNode
 }
 
-export function SuggestedChangesProvider({ children }: SuggestedChangesProviderProps) {
-  const [suggestedChanges, setSuggestedChanges] = useState<SuggestedChange[]>([])
+export function SuggestedChangesProvider({
+  children,
+}: SuggestedChangesProviderProps) {
+  const [suggestedChanges, setSuggestedChanges] = useState<SuggestedChange[]>(
+    []
+  )
   const [originalDocument, setOriginalDocument] = useState<string>('')
 
   // 生成唯一ID
@@ -47,40 +60,52 @@ export function SuggestedChangesProvider({ children }: SuggestedChangesProviderP
   }, [])
 
   // 应用所有待处理的建议修改到文档
-  const applyChangesToDocument = useCallback((content: string, changes: SuggestedChange[]) => {
-    // 按位置倒序排列，从后往前应用修改，避免位置偏移问题
-    const sortedChanges = changes
-      .filter(change => change.status === 'pending')
-      .sort((a, b) => b.from - a.from)
+  const applyChangesToDocument = useCallback(
+    (content: string, changes: SuggestedChange[]) => {
+      // 按位置倒序排列，从后往前应用修改，避免位置偏移问题
+      const sortedChanges = changes
+        .filter(change => change.status === 'pending')
+        .sort((a, b) => b.from - a.from)
 
-    let result = content
-    for (const change of sortedChanges) {
-      result = result.slice(0, change.from) + change.suggestedText + result.slice(change.to)
-    }
-    return result
-  }, [])
+      let result = content
+      for (const change of sortedChanges) {
+        result =
+          result.slice(0, change.from) +
+          change.suggestedText +
+          result.slice(change.to)
+      }
+      return result
+    },
+    []
+  )
 
   // 计算修改后的文档内容
-  const modifiedDocument = applyChangesToDocument(originalDocument, suggestedChanges)
+  const modifiedDocument = applyChangesToDocument(
+    originalDocument,
+    suggestedChanges
+  )
 
   // 添加建议修改
-  const addSuggestedChange = useCallback((from: number, to: number, text: string): string => {
-    const originalText = originalDocument.slice(from, to)
-    const changeId = generateId()
-    
-    const newChange: SuggestedChange = {
-      id: changeId,
-      from,
-      to,
-      originalText,
-      suggestedText: text,
-      timestamp: Date.now(),
-      status: 'pending'
-    }
+  const addSuggestedChange = useCallback(
+    (from: number, to: number, text: string): string => {
+      const originalText = originalDocument.slice(from, to)
+      const changeId = generateId()
 
-    setSuggestedChanges(prev => [...prev, newChange])
-    return changeId
-  }, [originalDocument, generateId])
+      const newChange: SuggestedChange = {
+        id: changeId,
+        from,
+        to,
+        originalText,
+        suggestedText: text,
+        timestamp: Date.now(),
+        status: 'pending',
+      }
+
+      setSuggestedChanges(prev => [...prev, newChange])
+      return changeId
+    },
+    [originalDocument, generateId]
+  )
 
   // 接受修改
   const acceptChange = useCallback((changeId: string) => {
@@ -90,7 +115,7 @@ export function SuggestedChangesProvider({ children }: SuggestedChangesProviderP
 
       // 移除已接受的修改，并调整其他修改的位置
       const lengthDiff = change.suggestedText.length - (change.to - change.from)
-      
+
       return prev
         .filter(c => c.id !== changeId)
         .map(c => {
@@ -98,7 +123,7 @@ export function SuggestedChangesProvider({ children }: SuggestedChangesProviderP
             return {
               ...c,
               from: c.from + lengthDiff,
-              to: c.to + lengthDiff
+              to: c.to + lengthDiff,
             }
           }
           return c
@@ -124,7 +149,7 @@ export function SuggestedChangesProvider({ children }: SuggestedChangesProviderP
     acceptChange,
     rejectChange,
     clearAllChanges,
-    setOriginalDocument
+    setOriginalDocument,
   }
 
   return (
@@ -133,4 +158,3 @@ export function SuggestedChangesProvider({ children }: SuggestedChangesProviderP
     </SuggestedChangesContext.Provider>
   )
 }
-
