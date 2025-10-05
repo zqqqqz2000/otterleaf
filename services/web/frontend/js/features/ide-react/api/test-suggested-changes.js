@@ -207,6 +207,75 @@ window.testSuggestedChanges = {
     }
   },
 
+  // 测试多重叠合并功能
+  async testMultipleOverlapMerge() {
+    console.log('=== Testing multiple overlap merge functionality ===')
+    
+    try {
+      // 1. 设置原始文档
+      const originalText = "Hello world, this is a test document for multiple overlaps."
+      console.log('Original text:', originalText)
+      
+      // 2. 创建第一个修改 (0-5: "Hello" -> "Hi")
+      console.log('Creating first change: "Hello" -> "Hi"')
+      const change1 = await window.overleafEditorApi.suggestChange(0, 5, "Hi")
+      console.log('First change created:', change1)
+      
+      // 等待一下
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // 3. 创建第二个修改 (6-11: "world" -> "universe")
+      console.log('Creating second change: "world" -> "universe"')
+      const change2 = await window.overleafEditorApi.suggestChange(6, 11, "universe")
+      console.log('Second change created:', change2)
+      
+      // 等待一下
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // 4. 创建第三个修改 (12-16: "this" -> "that")
+      console.log('Creating third change: "this" -> "that"')
+      const change3 = await window.overleafEditorApi.suggestChange(12, 16, "that")
+      console.log('Third change created:', change3)
+      
+      // 等待一下
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // 5. 创建一个覆盖前三个修改的大修改 (0-20: "Hello world, this" -> "Greetings")
+      console.log('Creating large overlapping change: "Hello world, this" -> "Greetings"')
+      const change4 = await window.overleafEditorApi.suggestChange(0, 20, "Greetings")
+      console.log('Large change created:', change4)
+      
+      // 等待一下
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // 6. 检查合并结果
+      console.log('Checking multiple overlap merge result...')
+      const docWithChanges = await this.getDocument()
+      const originalDoc = await this.getOriginalDocument()
+      
+      console.log('Original document:', originalDoc)
+      console.log('Document with changes:', docWithChanges)
+      
+      // 7. 检查DOM元素数量（应该只有一个合并后的修改）
+      const domCheck = this.checkDOMElements()
+      console.log('DOM elements after multiple overlap merge:', domCheck)
+      
+      return {
+        success: true,
+        change1,
+        change2,
+        change3,
+        change4,
+        originalDoc,
+        docWithChanges,
+        domCheck
+      }
+    } catch (error) {
+      console.error('Multiple overlap merge test failed:', error)
+      return { success: false, error }
+    }
+  },
+
   // 测试非重叠修改（应该保持分离）
   async testNonOverlappingChanges() {
     console.log('=== Testing non-overlapping changes ===')
@@ -286,5 +355,6 @@ console.log('- rejectChange(changeId)')
 console.log('- checkDOMElements()')
 console.log('- testHoverFunctionality()')
 console.log('- testMergeFunctionality() - 测试合并重叠修改功能')
+console.log('- testMultipleOverlapMerge() - 测试多重叠合并功能')
 console.log('- testNonOverlappingChanges() - 测试非重叠修改功能')
 console.log('- runFullTest()')

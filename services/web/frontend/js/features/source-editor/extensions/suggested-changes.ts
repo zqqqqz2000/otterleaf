@@ -5,16 +5,16 @@ import {
   WidgetType,
 } from '@codemirror/view'
 import { StateField, StateEffect, Extension, RangeSet } from '@codemirror/state'
-import { SuggestedChange } from '../../ide-react/context/suggested-changes-context'
+import { DiffEntry } from '../../ide-react/context/suggested-changes-context'
 
-// 状态效果：更新建议修改
+// State effect: update suggested changes diffs
 export const updateSuggestedChangesEffect = StateEffect.define<{
-  changes: SuggestedChange[]
+  diffs: DiffEntry[]
   onAccept?: (changeId: string) => void
-  onReject?: (changeId: string) => void
+  onRevert?: (changeId: string) => void
 }>()
 
-// 建议修改的装饰器状态字段
+// Suggested changes decorations state field
 const suggestedChangesField = StateField.define<DecorationSet>({
   create() {
     return Decoration.none
@@ -25,9 +25,9 @@ const suggestedChangesField = StateField.define<DecorationSet>({
     for (const effect of tr.effects) {
       if (effect.is(updateSuggestedChangesEffect)) {
         decorations = buildSuggestedChangesDecorations(
-          effect.value.changes,
+          effect.value.diffs,
           effect.value.onAccept,
-          effect.value.onReject
+          effect.value.onRevert
         )
       }
     }
@@ -37,8 +37,8 @@ const suggestedChangesField = StateField.define<DecorationSet>({
   provide: f => EditorView.decorations.from(f),
 })
 
-// 建议插入文本组件
-class SuggestedInsertWidget extends WidgetType {
+// Widget showing the user's original text (that was replaced in real document)
+class UserTextWidget extends WidgetType {
   constructor(
     private text: string,
     private changeId: string
@@ -49,13 +49,22 @@ class SuggestedInsertWidget extends WidgetType {
   toDOM() {
     const span = document.createElement('span')
     span.className =
-      'ol-cm-suggested-insert-text ol-cm-suggested-change-hoverable'
+      'ol-cm-user-text ol-cm-suggested-change-hoverable'
     span.textContent = this.text
     span.setAttribute('data-change-id', this.changeId)
+    span.style.cssText = `
+      text-decoration: line-through;
+      background-color: #ffebee;
+      color: #c62828;
+      padding: 1px 2px;
+      border-radius: 2px;
+      border: 1px solid #ffcdd2;
+      cursor: pointer;
+    `
     return span
   }
 
-  eq(other: SuggestedInsertWidget) {
+  eq(other: UserTextWidget) {
     return this.text === other.text && this.changeId === other.changeId
   }
 
@@ -64,12 +73,12 @@ class SuggestedInsertWidget extends WidgetType {
   }
 }
 
-// 建议修改悬浮按钮组件
+// Suggested change hover button widget
 class SuggestedChangeWidget extends WidgetType {
   constructor(
-    private change: SuggestedChange,
+    private diff: DiffEntry,
     private onAccept: (changeId: string) => void,
-    private onReject: (changeId: string) => void
+    private onRevert: (changeId: string) => void
   ) {
     super()
   }
@@ -77,7 +86,7 @@ class SuggestedChangeWidget extends WidgetType {
   toDOM() {
     const container = document.createElement('div')
     container.className = 'ol-cm-suggested-change-widget'
-    container.setAttribute('data-widget-change-id', this.change.id)
+    container.setAttribute('data-widget-change-id', this.diff.changeId)
     container.style.cssText = `
       display: none !important;
       position: absolute !important;
@@ -95,9 +104,8 @@ class SuggestedChangeWidget extends WidgetType {
       pointer-events: auto !important;
     `
 
-    // 添加鼠标事件监听器到容器
+    // Mouse event listeners
     container.addEventListener('mouseenter', () => {
-      // 清除隐藏定时器
       if (hideTimeout) {
         clearTimeout(hideTimeout)
         hideTimeout = null
@@ -108,7 +116,6 @@ class SuggestedChangeWidget extends WidgetType {
     })
 
     container.addEventListener('mouseleave', () => {
-      // 延迟隐藏
       hideTimeout = window.setTimeout(() => {
         if (currentVisibleWidget === container) {
           container.style.display = 'none'
@@ -123,11 +130,11 @@ class SuggestedChangeWidget extends WidgetType {
     content.className = 'ol-cm-suggested-change-content'
     content.style.marginRight = '8px'
 
-    // 显示原文和建议文本
-    const originalSpan = document.createElement('span')
-    originalSpan.className = 'ol-cm-suggested-change-original'
-    originalSpan.textContent = this.change.originalText || '(删除)'
-    originalSpan.style.cssText =
+    // Show user text (original) and real text (suggested)
+    const userSpan = document.createElement('span')
+    userSpan.className = 'ol-cm-suggested-change-original'
+    userSpan.textContent = this.diff.userText || '(deleted)'
+    userSpan.style.cssText =
       'text-decoration: line-through; color: #c62828;'
 
     const arrow = document.createElement('span')
@@ -135,16 +142,16 @@ class SuggestedChangeWidget extends WidgetType {
     arrow.textContent = ' → '
     arrow.style.cssText = 'color: #666; font-weight: bold;'
 
-    const suggestedSpan = document.createElement('span')
-    suggestedSpan.className = 'ol-cm-suggested-change-suggested'
-    suggestedSpan.textContent = this.change.suggestedText || '(无)'
-    suggestedSpan.style.cssText = 'color: #2e7d32; font-weight: bold;'
+    const realSpan = document.createElement('span')
+    realSpan.className = 'ol-cm-suggested-change-suggested'
+    realSpan.textContent = this.diff.realText || '(none)'
+    realSpan.style.cssText = 'color: #2e7d32; font-weight: bold;'
 
-    content.appendChild(originalSpan)
+    content.appendChild(userSpan)
     content.appendChild(arrow)
-    content.appendChild(suggestedSpan)
+    content.appendChild(realSpan)
 
-    // 按钮容器
+    // Buttons container
     const buttons = document.createElement('div')
     buttons.className = 'ol-cm-suggested-change-buttons'
     buttons.style.cssText = 'display: flex; gap: 4px;'
@@ -152,7 +159,7 @@ class SuggestedChangeWidget extends WidgetType {
     const acceptBtn = document.createElement('button')
     acceptBtn.className = 'ol-cm-suggested-change-accept'
     acceptBtn.textContent = '✓'
-    acceptBtn.title = '接受修改'
+    acceptBtn.title = 'Accept change (sync to user document)'
     acceptBtn.style.cssText = `
       border: none !important;
       border-radius: 2px !important;
@@ -166,14 +173,14 @@ class SuggestedChangeWidget extends WidgetType {
     acceptBtn.onclick = e => {
       e.preventDefault()
       e.stopPropagation()
-      this.onAccept(this.change.id)
+      this.onAccept(this.diff.changeId)
     }
 
-    const rejectBtn = document.createElement('button')
-    rejectBtn.className = 'ol-cm-suggested-change-reject'
-    rejectBtn.textContent = '✗'
-    rejectBtn.title = '拒绝修改'
-    rejectBtn.style.cssText = `
+    const revertBtn = document.createElement('button')
+    revertBtn.className = 'ol-cm-suggested-change-reject'
+    revertBtn.textContent = '✗'
+    revertBtn.title = 'Revert change (restore user document)'
+    revertBtn.style.cssText = `
       border: none !important;
       border-radius: 2px !important;
       padding: 2px 6px !important;
@@ -183,15 +190,14 @@ class SuggestedChangeWidget extends WidgetType {
       background-color: #f44336 !important;
       color: white !important;
     `
-    rejectBtn.onclick = e => {
+    revertBtn.onclick = e => {
       e.preventDefault()
       e.stopPropagation()
-      this.onReject(this.change.id)
+      this.onRevert(this.diff.changeId)
     }
 
     buttons.appendChild(acceptBtn)
-    buttons.appendChild(rejectBtn)
-
+    buttons.appendChild(revertBtn)
     container.appendChild(content)
     container.appendChild(buttons)
 
@@ -200,8 +206,8 @@ class SuggestedChangeWidget extends WidgetType {
 
   eq(other: SuggestedChangeWidget) {
     return (
-      this.change.id === other.change.id &&
-      this.change.status === other.change.status
+      this.diff.id === other.diff.id &&
+      this.diff.changeId === other.diff.changeId
     )
   }
 
@@ -214,63 +220,49 @@ class SuggestedChangeWidget extends WidgetType {
   }
 }
 
-// 构建建议修改的装饰器
+// Build suggested changes decorations based on diffs
 function buildSuggestedChangesDecorations(
-  changes: SuggestedChange[],
+  diffs: DiffEntry[],
   onAccept?: (changeId: string) => void,
-  onReject?: (changeId: string) => void
+  onRevert?: (changeId: string) => void
 ): DecorationSet {
   const decorations: any[] = []
 
-  for (const change of changes) {
-    if (change.status !== 'pending') continue
+  for (const diff of diffs) {
+    // Real document positions (where the decoration appears in CodeMirror)
+    const realFrom = Math.max(0, diff.realFrom)
+    const realTo = Math.max(realFrom, diff.realTo)
 
-    // 确保位置有效
-    const from = Math.max(0, change.from)
-    const to = Math.max(from, change.to)
-
-    // 标记原始文本（删除样式）- 只有当有文本要删除时才添加
-    if (from < to) {
+    // Mark the real text (what's currently in the document) as "suggested"
+    if (realFrom < realTo) {
       decorations.push(
         Decoration.mark({
-          class:
-            'ol-cm-suggested-change-delete ol-cm-suggested-change-hoverable',
+          class: 'ol-cm-suggested-change-insert ol-cm-suggested-change-hoverable',
           attributes: {
-            'data-change-id': change.id,
+            'data-change-id': diff.changeId,
           },
-        }).range(from, to)
+        }).range(realFrom, realTo)
       )
     }
 
-    // 添加建议文本
-    if (change.suggestedText) {
-      if (from < to) {
-        // 替换情况：在删除的文本范围内显示建议文本
-        decorations.push(
-          Decoration.widget({
-            widget: new SuggestedInsertWidget(change.suggestedText, change.id),
-            side: 1,
-          }).range(to)
-        )
-      } else {
-        // 纯插入情况：在指定位置插入建议文本
-        decorations.push(
-          Decoration.widget({
-            widget: new SuggestedInsertWidget(change.suggestedText, change.id),
-            side: 1,
-          }).range(from)
-        )
-      }
-    }
-
-    // 添加悬浮控制按钮
-    if (onAccept && onReject) {
+    // Show the user's original text as a widget (strike-through)
+    if (diff.userText) {
       decorations.push(
         Decoration.widget({
-          widget: new SuggestedChangeWidget(change, onAccept, onReject),
+          widget: new UserTextWidget(diff.userText, diff.changeId),
+          side: -1,
+        }).range(realFrom)
+      )
+    }
+
+    // Add hover control buttons
+    if (onAccept && onRevert) {
+      decorations.push(
+        Decoration.widget({
+          widget: new SuggestedChangeWidget(diff, onAccept, onRevert),
           side: 1,
           block: false,
-        }).range(Math.max(from, to))
+        }).range(Math.max(realFrom, realTo))
       )
     }
   }
@@ -447,33 +439,33 @@ const hoverExtension = EditorView.domEventHandlers({
   },
 })
 
-// 创建建议修改扩展
+// Create suggested changes extension
 export function suggestedChanges(
-  changes: SuggestedChange[] = [],
+  diffs: DiffEntry[] = [],
   onAccept?: (changeId: string) => void,
-  onReject?: (changeId: string) => void
+  onRevert?: (changeId: string) => void
 ): Extension {
   return [
     suggestedChangesField.init(() =>
-      buildSuggestedChangesDecorations(changes, onAccept, onReject)
+      buildSuggestedChangesDecorations(diffs, onAccept, onRevert)
     ),
     suggestedChangesTheme,
     hoverExtension,
   ]
 }
 
-// 更新建议修改的辅助函数
+// Update suggested changes helper function
 export function updateSuggestedChanges(
   view: EditorView,
-  changes: SuggestedChange[],
+  diffs: DiffEntry[],
   onAccept?: (changeId: string) => void,
-  onReject?: (changeId: string) => void
+  onRevert?: (changeId: string) => void
 ) {
   view.dispatch({
     effects: updateSuggestedChangesEffect.of({
-      changes,
+      diffs,
       onAccept,
-      onReject,
+      onRevert,
     }),
   })
 }

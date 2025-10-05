@@ -1,6 +1,6 @@
 import { EditorView } from '@codemirror/view'
 import { debugConsole } from '@/utils/debugging'
-import { SuggestedChange } from '../context/suggested-changes-context'
+import { AppliedChange, DiffEntry } from '../context/suggested-changes-context'
 
 // 定义API事件类型
 export interface EditorApiEvents {
@@ -81,9 +81,11 @@ export interface EditorApiEvents {
     success: boolean
     data?: {
       content: string
-      originalContent?: string  // 新增：原始内容
+      userDocument?: string  // User's baseline document
+      realDocument?: string  // Real document with applied changes
       length: number
-      suggestedChanges?: SuggestedChange[]  // 新增：建议修改列表
+      appliedChanges?: AppliedChange[]  // Applied changes list
+      diffs?: DiffEntry[]  // Computed diffs
     }
     error?: string
   }
@@ -104,14 +106,21 @@ let globalEditorView: EditorView | null = null
 // 全局编译上下文引用
 let globalCompileContext: { startCompile: (options?: any) => void } | null = null
 
-// 全局建议修改上下文引用
+// Global suggested changes context reference
 let globalSuggestedChangesContext: {
-  addSuggestedChange: (from: number, to: number, text: string) => string
+  userDocument: string
+  appliedChanges: AppliedChange[]
+  diffs: DiffEntry[]
+  applySuggestedChange: (userDocFrom: number, userDocTo: number, text: string) => string
   acceptChange: (changeId: string) => void
-  rejectChange: (changeId: string) => void
-  suggestedChanges: SuggestedChange[]
-  originalDocument: string
-  modifiedDocument: string
+  revertChange: (changeId: string) => void
+  clearAllChanges: () => void
+  setUserDocument: (content: string) => void
+  setRealDocument: (content: string) => void
+  getApplyToEditorCallback: () => ((change: AppliedChange) => void) | null
+  setApplyToEditorCallback: (callback: (change: AppliedChange) => void) => void
+  getRevertFromEditorCallback: () => ((change: AppliedChange) => void) | null
+  setRevertFromEditorCallback: (callback: (change: AppliedChange) => void) => void
 } | null = null
 
 // 设置全局编辑器视图
@@ -124,14 +133,21 @@ export function setGlobalCompileContext(context: { startCompile: (options?: any)
   globalCompileContext = context
 }
 
-// 设置全局建议修改上下文
+// Set global suggested changes context reference
 export function setGlobalSuggestedChangesContext(context: {
-  addSuggestedChange: (from: number, to: number, text: string) => string
+  userDocument: string
+  appliedChanges: AppliedChange[]
+  diffs: DiffEntry[]
+  applySuggestedChange: (userDocFrom: number, userDocTo: number, text: string) => string
   acceptChange: (changeId: string) => void
-  rejectChange: (changeId: string) => void
-  suggestedChanges: SuggestedChange[]
-  originalDocument: string
-  modifiedDocument: string
+  revertChange: (changeId: string) => void
+  clearAllChanges: () => void
+  setUserDocument: (content: string) => void
+  setRealDocument: (content: string) => void
+  getApplyToEditorCallback: () => ((change: AppliedChange) => void) | null
+  setApplyToEditorCallback: (callback: (change: AppliedChange) => void) => void
+  getRevertFromEditorCallback: () => ((change: AppliedChange) => void) | null
+  setRevertFromEditorCallback: (callback: (change: AppliedChange) => void) => void
 } | null) {
   globalSuggestedChangesContext = context
 }
@@ -215,12 +231,12 @@ function setSelection(from: number, to: number): boolean {
   }
 }
 
-// 替换文本（支持建议模式）
+// Replace text (supports suggested mode)
 function replaceText(from: number, to: number, text: string, suggestedOnly: boolean = false): boolean | string {
   if (suggestedOnly && globalSuggestedChangesContext) {
-    // 建议模式：仅创建建议修改
+    // Suggested mode: apply change to real document and track it
     try {
-      const changeId = globalSuggestedChangesContext.addSuggestedChange(from, to, text)
+      const changeId = globalSuggestedChangesContext.applySuggestedChange(from, to, text)
       return changeId
     } catch (error) {
       debugConsole.error('Failed to create suggested change:', error)
@@ -228,7 +244,7 @@ function replaceText(from: number, to: number, text: string, suggestedOnly: bool
     }
   }
 
-  // 直接修改模式
+  // Direct modification mode
   const view = getEditorView()
   if (!view) {
     return false
@@ -238,7 +254,7 @@ function replaceText(from: number, to: number, text: string, suggestedOnly: bool
     const state = view.state
     const docLength = state.doc.length
 
-    // 确保位置在文档范围内
+    // Ensure positions are within document range
     const clampedFrom = Math.max(0, Math.min(from, docLength))
     const clampedTo = Math.max(clampedFrom, Math.min(to, docLength))
 
@@ -253,21 +269,21 @@ function replaceText(from: number, to: number, text: string, suggestedOnly: bool
   }
 }
 
-// 创建建议修改
+// Create suggested change (applies immediately to real document)
 function suggestChange(from: number, to: number, text: string): string | null {
   if (!globalSuggestedChangesContext) {
     return null
   }
 
   try {
-    return globalSuggestedChangesContext.addSuggestedChange(from, to, text)
+    return globalSuggestedChangesContext.applySuggestedChange(from, to, text)
   } catch (error) {
     debugConsole.error('Failed to create suggested change:', error)
     return null
   }
 }
 
-// 接受建议修改
+// Accept change: sync from real document to user document (update baseline)
 function acceptChange(changeId: string): boolean {
   if (!globalSuggestedChangesContext) {
     return false
@@ -282,50 +298,54 @@ function acceptChange(changeId: string): boolean {
   }
 }
 
-// 拒绝建议修改
+// Revert change (undo the change from real document)
 function rejectChange(changeId: string): boolean {
   if (!globalSuggestedChangesContext) {
     return false
   }
 
   try {
-    globalSuggestedChangesContext.rejectChange(changeId)
+    globalSuggestedChangesContext.revertChange(changeId)
     return true
   } catch (error) {
-    debugConsole.error('Failed to reject change:', error)
+    debugConsole.error('Failed to revert change:', error)
     return false
   }
 }
 
-// 获取文档所有内容（支持包含建议修改）
+// Get document content (with option to include changes info)
 function getDocument(includeChanges: boolean = true): { 
   content: string
-  originalContent?: string
+  userDocument?: string
+  realDocument?: string
   length: number
-  suggestedChanges?: SuggestedChange[]
+  appliedChanges?: AppliedChange[]
+  diffs?: DiffEntry[]
 } | null {
   const view = getEditorView()
   if (!view) {
     return null
   }
 
-  const originalContent = view.state.doc.toString()
+  const realDocument = view.state.doc.toString()
   
   if (includeChanges && globalSuggestedChangesContext) {
-    // 返回包含建议修改的版本
-    const modifiedContent = globalSuggestedChangesContext.modifiedDocument
+    // Return with changes information
     return {
-      content: modifiedContent,
-      originalContent,
-      length: modifiedContent.length,
-      suggestedChanges: globalSuggestedChangesContext.suggestedChanges
+      content: realDocument,  // Real document is the current content
+      userDocument: globalSuggestedChangesContext.userDocument,
+      realDocument,
+      length: realDocument.length,
+      appliedChanges: globalSuggestedChangesContext.appliedChanges,
+      diffs: globalSuggestedChangesContext.diffs,
     }
   }
 
-  // 返回原始版本
+  // Return basic version (for compilation, use user document)
+  const userDocument = globalSuggestedChangesContext?.userDocument || realDocument
   return {
-    content: originalContent,
-    length: originalContent.length,
+    content: userDocument,  // For compilation, use user document (baseline)
+    length: userDocument.length,
   }
 }
 

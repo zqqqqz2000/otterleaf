@@ -1,18 +1,22 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { useCodeMirrorViewContext } from './codemirror-context'
-import { useSuggestedChanges } from '../../ide-react/context/suggested-changes-context'
+import {
+  useSuggestedChanges,
+  AppliedChange,
+} from '../../ide-react/context/suggested-changes-context'
 import { setGlobalSuggestedChangesContext } from '../../ide-react/api/editor-api'
 import { updateSuggestedChanges } from '../extensions/suggested-changes'
 
 /**
- * 建议修改集成组件
- * 负责将建议修改上下文与 CodeMirror 编辑器集成
+ * Suggested changes integration component
+ * Bridges suggested changes context with CodeMirror editor
  */
 export function SuggestedChangesIntegration() {
   const view = useCodeMirrorViewContext()
   const suggestedChangesContext = useSuggestedChanges()
+  const isApplyingChangeRef = useRef(false)
 
-  // 设置全局上下文引用，供 editor-api 使用
+  // Set global context reference for editor-api
   useEffect(() => {
     setGlobalSuggestedChangesContext(suggestedChangesContext)
 
@@ -21,99 +25,119 @@ export function SuggestedChangesIntegration() {
     }
   }, [suggestedChangesContext])
 
-  // 同步原始文档内容
+  // Initialize user document when editor loads
   useEffect(() => {
     if (view && view.state.doc) {
       const currentContent = view.state.doc.toString()
-      if (currentContent !== suggestedChangesContext.originalDocument) {
-        suggestedChangesContext.setOriginalDocument(currentContent)
+      if (currentContent !== suggestedChangesContext.userDocument && !isApplyingChangeRef.current) {
+        suggestedChangesContext.setUserDocument(currentContent)
       }
     }
   }, [view, suggestedChangesContext])
 
-  // 处理接受修改
+  // Callback to apply a change to CodeMirror editor
+  const applyToEditor = useCallback(
+    (change: AppliedChange) => {
+      if (!view) return
+
+      console.log('Applying change to editor:', change)
+      isApplyingChangeRef.current = true
+
+      try {
+        view.dispatch({
+          changes: {
+            from: change.realDocFrom,
+            to: change.realDocFrom + change.userDocText.length,
+            insert: change.insertedText,
+          },
+        })
+      } finally {
+        isApplyingChangeRef.current = false
+      }
+    },
+    [view]
+  )
+
+  // Callback to revert a change from CodeMirror editor
+  const revertFromEditor = useCallback(
+    (change: AppliedChange) => {
+      if (!view) return
+
+      console.log('Reverting change from editor:', change)
+      isApplyingChangeRef.current = true
+
+      try {
+        // Calculate current position in real document
+        // Need to account for other changes that might have shifted positions
+        const allChanges = suggestedChangesContext.appliedChanges
+        let currentRealFrom = change.realDocFrom
+        let currentRealTo = change.realDocTo
+
+        // Adjust for other changes applied after this one
+        for (const otherChange of allChanges) {
+          if (otherChange.id === change.id) continue
+          if (otherChange.timestamp > change.timestamp) {
+            if (otherChange.realDocFrom <= currentRealFrom) {
+              const lengthDiff =
+                otherChange.insertedText.length -
+                (otherChange.userDocTo - otherChange.userDocFrom)
+              currentRealFrom += lengthDiff
+              currentRealTo += lengthDiff
+            }
+          }
+        }
+
+        view.dispatch({
+          changes: {
+            from: currentRealFrom,
+            to: currentRealTo,
+            insert: change.userDocText,
+          },
+        })
+      } finally {
+        isApplyingChangeRef.current = false
+      }
+    },
+    [view, suggestedChangesContext.appliedChanges]
+  )
+
+  // Register callbacks with context
+  useEffect(() => {
+    suggestedChangesContext.setApplyToEditorCallback(applyToEditor)
+    suggestedChangesContext.setRevertFromEditorCallback(revertFromEditor)
+  }, [suggestedChangesContext, applyToEditor, revertFromEditor])
+
+  // Handle accept change (user clicked accept button)
   const handleAcceptChange = useCallback(
     (changeId: string) => {
       console.log('Accepting change:', changeId)
-
-      if (!view) return
-
-      // 找到要接受的修改
-      const change = suggestedChangesContext.suggestedChanges.find(
-        c => c.id === changeId
-      )
-      if (!change) return
-
-      // 应用修改到 CodeMirror 编辑器
-      view.dispatch({
-        changes: {
-          from: change.from,
-          to: change.to,
-          insert: change.suggestedText,
-        },
-      })
-
-      // 更新建议修改状态
       suggestedChangesContext.acceptChange(changeId)
-    },
-    [view, suggestedChangesContext]
-  )
-
-  // 处理拒绝修改
-  const handleRejectChange = useCallback(
-    (changeId: string) => {
-      suggestedChangesContext.rejectChange(changeId)
     },
     [suggestedChangesContext]
   )
 
-  // 更新 CodeMirror 中的建议修改装饰器
+  // Handle revert change (user clicked revert button)
+  const handleRevertChange = useCallback(
+    (changeId: string) => {
+      console.log('Reverting change:', changeId)
+      suggestedChangesContext.revertChange(changeId)
+    },
+    [suggestedChangesContext]
+  )
+
+  // Update CodeMirror decorations when diffs change
   useEffect(() => {
     if (view) {
       updateSuggestedChanges(
         view,
-        suggestedChangesContext.suggestedChanges,
+        suggestedChangesContext.diffs,
         handleAcceptChange,
-        handleRejectChange
+        handleRevertChange
       )
     }
-  }, [
-    view,
-    suggestedChangesContext.suggestedChanges,
-    handleAcceptChange,
-    handleRejectChange,
-  ])
+  }, [view, suggestedChangesContext.diffs, handleAcceptChange, handleRevertChange])
 
-  // 监听文档变化，同步到原始文档
-  useEffect(() => {
-    if (!view) return
-
-    // 使用 MutationObserver 或定期检查来监听文档变化
-    // 这是一个简化的实现，避免了动态修改 CodeMirror 配置的复杂性
-    let lastContent = view.state.doc.toString()
-
-    const checkForChanges = () => {
-      if (!view) return
-
-      const currentContent = view.state.doc.toString()
-      if (
-        currentContent !== lastContent &&
-        currentContent !== suggestedChangesContext.originalDocument
-      ) {
-        lastContent = currentContent
-        suggestedChangesContext.setOriginalDocument(currentContent)
-      }
-    }
-
-    // 定期检查文档变化
-    const interval = setInterval(checkForChanges, 100)
-
-    return () => {
-      clearInterval(interval)
-    }
-  }, [view, suggestedChangesContext])
-
-  return null // 这是一个逻辑组件，不渲染任何 UI
+  return null // Logic component, no UI
 }
 
 export default SuggestedChangesIntegration
