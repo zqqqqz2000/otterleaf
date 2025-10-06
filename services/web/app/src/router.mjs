@@ -536,6 +536,8 @@ async function initialize(webRouter, privateApiRouter, publicApiRouter) {
       }),
       AsyncLocalStorage.middleware,
       PermissionsController.useCapabilities(),
+      // 添加URL参数认证支持
+      AuthenticationController.requireUrlParamAuth(),
       AuthorizationMiddleware.ensureUserCanReadProject,
       ProjectController.loadEditor
     )
