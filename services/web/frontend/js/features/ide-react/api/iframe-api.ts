@@ -36,7 +36,9 @@ function generateCallId(): string {
 }
 
 // 处理 API 调用
-async function handleApiCall(message: IframeApiMessage): Promise<IframeApiResponse> {
+async function handleApiCall(
+  message: IframeApiMessage
+): Promise<IframeApiResponse> {
   const { api, method, params, callId } = message
 
   try {
@@ -47,7 +49,9 @@ async function handleApiCall(message: IframeApiMessage): Promise<IframeApiRespon
 
     // 目前只支持 editor API
     if (api !== 'editor') {
-      throw new Error(`API '${api}' not supported. Only 'editor' API is available`)
+      throw new Error(
+        `API '${api}' not supported. Only 'editor' API is available`
+      )
     }
 
     // 检查方法是否存在
@@ -66,7 +70,7 @@ async function handleApiCall(message: IframeApiMessage): Promise<IframeApiRespon
     }
   } catch (error) {
     debugConsole.error('Iframe API call failed:', error)
-    
+
     return {
       type: 'apiResponse',
       callId,
@@ -80,7 +84,10 @@ async function handleApiCall(message: IframeApiMessage): Promise<IframeApiRespon
 function handleMessage(event: MessageEvent) {
   // 检查源是否被允许
   if (!isAllowedOrigin(event.origin)) {
-    debugConsole.warn('Rejected message from unauthorized origin:', event.origin)
+    debugConsole.warn(
+      'Rejected message from unauthorized origin:',
+      event.origin
+    )
     return
   }
 
@@ -93,19 +100,21 @@ function handleMessage(event: MessageEvent) {
   }
 
   // 处理 API 调用
-  handleApiCall(message).then(response => {
-    // 发送响应回父窗口
-    event.source?.postMessage(response, { targetOrigin: event.origin })
-  }).catch(error => {
-    // 发送错误响应
-    const errorResponse: IframeApiResponse = {
-      type: 'apiResponse',
-      callId: message.callId,
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    }
-    event.source?.postMessage(errorResponse, { targetOrigin: event.origin })
-  })
+  handleApiCall(message)
+    .then(response => {
+      // 发送响应回父窗口
+      event.source?.postMessage(response, { targetOrigin: event.origin })
+    })
+    .catch(error => {
+      // 发送错误响应
+      const errorResponse: IframeApiResponse = {
+        type: 'apiResponse',
+        callId: message.callId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      }
+      event.source?.postMessage(errorResponse, { targetOrigin: event.origin })
+    })
 }
 
 // 初始化 iframe API
@@ -118,7 +127,9 @@ export function initializeIframeApi() {
 
   // 检查 overleafEditorApi 是否可用
   if (!window.overleafEditorApi) {
-    debugConsole.warn('overleafEditorApi not available, iframe API will not work')
+    debugConsole.warn(
+      'overleafEditorApi not available, iframe API will not work'
+    )
     return
   }
 
@@ -129,7 +140,10 @@ export function initializeIframeApi() {
   window.iframeApiInitialized = true
 
   debugConsole.log('Iframe API initialized for origins:', ALLOWED_ORIGINS)
-  debugConsole.log('Available API methods:', Object.keys(window.overleafEditorApi))
+  debugConsole.log(
+    'Available API methods:',
+    Object.keys(window.overleafEditorApi)
+  )
 }
 
 // 清理 iframe API
@@ -197,9 +211,9 @@ export function callParentApi(
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     const callId = generateCallId()
-    
+
     // 监听响应
-    const cleanup = listenForResponse(callId, (response) => {
+    const cleanup = listenForResponse(callId, response => {
       if (response.success) {
         resolve(response.result)
       } else {

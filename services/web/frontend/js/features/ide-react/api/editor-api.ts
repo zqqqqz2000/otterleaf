@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view'
 import { debugConsole } from '@/utils/debugging'
 import { DiffEntry } from '../context/suggested-changes-context'
+import getMeta from '@/utils/meta'
 
 // 定义API事件类型
 export interface EditorApiEvents {
@@ -95,6 +96,30 @@ export interface EditorApiEvents {
   'editor:recompile:response': {
     requestId: string
     success: boolean
+    error?: string
+  }
+  'editor:downloadFile': {
+    requestId: string
+    fileId: string
+    fileName?: string
+  }
+  'editor:downloadFile:response': {
+    requestId: string
+    success: boolean
+    downloadUrl?: string
+    error?: string
+  }
+  'editor:uploadFile': {
+    requestId: string
+    file: File
+    fileName?: string
+    folderId?: string
+  }
+  'editor:uploadFile:response': {
+    requestId: string
+    success: boolean
+    entityId?: string
+    hash?: string
     error?: string
   }
 }
@@ -358,6 +383,141 @@ function getDocument(includeChanges: boolean = true): {
   }
 }
 
+// 下载文件
+function downloadFile(fileId: string, fileName?: string): string | null {
+  try {
+    // 获取当前项目ID
+    const projectId = getMeta('ol-project_id')
+    if (!projectId) {
+      debugConsole.error('Project ID not available for file download')
+      return null
+    }
+
+    // 构建下载URL
+    const baseUrl = window.location.origin
+    const downloadUrl = `${baseUrl}/Project/${projectId}/file/${fileId}`
+    
+    // 如果有文件名，添加到URL参数中
+    const url = fileName ? `${downloadUrl}?filename=${encodeURIComponent(fileName)}` : downloadUrl
+    
+    debugConsole.log('Generated download URL:', url)
+    return url
+  } catch (error) {
+    debugConsole.error('Failed to generate download URL:', error)
+    return null
+  }
+}
+
+// 上传文件
+async function uploadFile(
+  file: File, 
+  fileName?: string, 
+  folderId?: string
+): Promise<{ success: boolean; entityId?: string; hash?: string; error?: string }> {
+  try {
+    // 获取当前项目ID
+    const projectId = getMeta('ol-project_id')
+    if (!projectId) {
+      return {
+        success: false,
+        error: 'Project ID not available for file upload'
+      }
+    }
+
+    // 获取CSRF token
+    const csrfToken = getMeta('ol-csrfToken')
+    if (!csrfToken) {
+      return {
+        success: false,
+        error: 'CSRF token not available'
+      }
+    }
+
+    // 如果没有指定folderId，使用项目ID作为根文件夹ID
+    // 这是Overleaf的标准做法，根文件夹的ID就是项目ID
+    const targetFolderId = folderId || projectId
+
+    // 使用指定的文件名或原始文件名
+    const finalFileName = fileName || file.name
+
+    // 创建FormData
+    const formData = new FormData()
+    formData.append('qqfile', file)
+    formData.append('name', finalFileName)
+    if (folderId) {
+      formData.append('folder_id', folderId)
+    }
+
+    // 构建上传URL
+    const baseUrl = window.location.origin
+    const uploadUrl = `${baseUrl}/Project/${projectId}/upload?folder_id=${targetFolderId}`
+
+    debugConsole.log('Uploading file:', {
+      fileName: finalFileName,
+      folderId: targetFolderId,
+      uploadUrl,
+      csrfToken: csrfToken ? 'present' : 'missing',
+      projectId
+    })
+
+    // 发送上传请求
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'X-Csrf-Token': csrfToken, // 使用正确的header名称
+      },
+      credentials: 'same-origin', // 包含cookies以维持会话状态
+      body: formData
+    })
+
+    // 检查响应状态
+    if (!response.ok) {
+      const errorText = await response.text()
+      debugConsole.error('Upload request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText
+      })
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`
+      }
+    }
+
+    let result
+    try {
+      result = await response.json()
+    } catch (parseError) {
+      debugConsole.error('Failed to parse response as JSON:', parseError)
+      return {
+        success: false,
+        error: 'Invalid response format from server'
+      }
+    }
+
+    if (result.success) {
+      debugConsole.log('File uploaded successfully:', result)
+      return {
+        success: true,
+        entityId: result.entity_id,
+        hash: result.hash
+      }
+    } else {
+      debugConsole.error('File upload failed:', result)
+      return {
+        success: false,
+        error: result.error || 'Upload failed'
+      }
+    }
+  } catch (error) {
+    debugConsole.error('Failed to upload file:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    }
+  }
+}
+
 // 处理API事件
 function handleApiEvent(event: CustomEvent) {
   const { type, detail } = event
@@ -531,6 +691,55 @@ function handleApiEvent(event: CustomEvent) {
       break
     }
 
+    case 'editor:downloadFile': {
+      const { requestId, fileId, fileName } =
+        detail as EditorApiEvents['editor:downloadFile']
+      const downloadUrl = downloadFile(fileId, fileName)
+
+      const response: EditorApiEvents['editor:downloadFile:response'] = {
+        requestId,
+        success: downloadUrl !== null,
+        downloadUrl: downloadUrl || undefined,
+        error: downloadUrl === null ? 'Failed to generate download URL' : undefined,
+      }
+
+      window.dispatchEvent(
+        new CustomEvent('editor:downloadFile:response', { detail: response })
+      )
+      break
+    }
+
+    case 'editor:uploadFile': {
+      const { requestId, file, fileName, folderId } =
+        detail as EditorApiEvents['editor:uploadFile']
+      
+      // 异步处理上传
+      uploadFile(file, fileName, folderId).then(result => {
+        const response: EditorApiEvents['editor:uploadFile:response'] = {
+          requestId,
+          success: result.success,
+          entityId: result.entityId,
+          hash: result.hash,
+          error: result.error,
+        }
+
+        window.dispatchEvent(
+          new CustomEvent('editor:uploadFile:response', { detail: response })
+        )
+      }).catch(error => {
+        const response: EditorApiEvents['editor:uploadFile:response'] = {
+          requestId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error occurred',
+        }
+
+        window.dispatchEvent(
+          new CustomEvent('editor:uploadFile:response', { detail: response })
+        )
+      })
+      break
+    }
+
     default:
       debugConsole.warn('Unknown editor API event:', type)
   }
@@ -548,6 +757,8 @@ export function initializeEditorApi() {
     'editor:rejectChange',
     'editor:getDocument',
     'editor:recompile',
+    'editor:downloadFile',
+    'editor:uploadFile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -568,6 +779,8 @@ export function cleanupEditorApi() {
     'editor:rejectChange',
     'editor:getDocument',
     'editor:recompile',
+    'editor:downloadFile',
+    'editor:uploadFile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -827,6 +1040,81 @@ export const editorApi = {
       window.dispatchEvent(
         new CustomEvent('editor:recompile', {
           detail: { requestId, options },
+        })
+      )
+    })
+  },
+
+  // 下载文件
+  downloadFile: (
+    fileId: string,
+    fileName?: string
+  ): Promise<{ success: boolean; downloadUrl?: string }> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:downloadFile:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'editor:downloadFile:response',
+            handleResponse as EventListener
+          )
+          resolve({ 
+            success: detail.success, 
+            downloadUrl: detail.downloadUrl 
+          })
+        }
+      }
+
+      window.addEventListener(
+        'editor:downloadFile:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:downloadFile', {
+          detail: { requestId, fileId, fileName },
+        })
+      )
+    })
+  },
+
+  // 上传文件
+  uploadFile: (
+    file: File,
+    fileName?: string,
+    folderId?: string
+  ): Promise<{ success: boolean; entityId?: string; hash?: string; error?: string }> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:uploadFile:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'editor:uploadFile:response',
+            handleResponse as EventListener
+          )
+          resolve({ 
+            success: detail.success, 
+            entityId: detail.entityId,
+            hash: detail.hash,
+            error: detail.error
+          })
+        }
+      }
+
+      window.addEventListener(
+        'editor:uploadFile:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:uploadFile', {
+          detail: { requestId, file, fileName, folderId },
         })
       )
     })

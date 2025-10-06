@@ -363,6 +363,60 @@ try {
 }
 ```
 
+### 6. 下载文件
+
+```javascript
+// 下载文件
+async function downloadFile(fileId, fileName) {
+  try {
+    const result = await callEditorApi('editor', 'downloadFile', [fileId, fileName]);
+    
+    if (result.success && result.downloadUrl) {
+      // 自动打开下载链接
+      window.open(result.downloadUrl, '_blank');
+      console.log('文件下载URL:', result.downloadUrl);
+    } else {
+      console.error('下载失败:', result.error);
+    }
+  } catch (error) {
+    console.error('下载文件失败:', error.message);
+  }
+}
+
+// 使用示例
+downloadFile('file123', 'my-document.pdf');
+```
+
+### 7. 上传文件
+
+```javascript
+// 上传文件
+async function uploadFile(file, fileName, folderId) {
+  try {
+    const params = [file];
+    if (fileName) params.push(fileName);
+    if (folderId) params.push(folderId);
+    
+    const result = await callEditorApi('editor', 'uploadFile', params);
+    
+    if (result.success) {
+      console.log('文件上传成功!');
+      console.log('实体ID:', result.entityId);
+      console.log('文件哈希:', result.hash);
+    } else {
+      console.error('上传失败:', result.error);
+    }
+  } catch (error) {
+    console.error('上传文件失败:', error.message);
+  }
+}
+
+// 使用示例
+const fileInput = document.getElementById('fileInput');
+const file = fileInput.files[0];
+uploadFile(file, 'custom-name.pdf', 'folder123');
+```
+
 ## 注意事项
 
 1. 确保 iframe 已完全加载后再调用 API
@@ -370,6 +424,7 @@ try {
 3. 处理异步调用的超时情况
 4. 建议修改功能需要用户手动接受或拒绝
 5. 某些操作可能需要用户权限或项目状态允许
+6. 文件操作需要确保用户有相应的项目权限
 
 ## 中文版本
 

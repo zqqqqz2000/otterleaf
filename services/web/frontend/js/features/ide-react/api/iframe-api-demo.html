@@ -108,7 +108,18 @@
       <div class="status info">
         <strong>说明：</strong> 请将下面的 iframe URL 替换为您的实际 Overleaf
         项目 URL。此 iframe API 直接调用
-        <code>window.overleafEditorApi</code> 中注册的 API 方法。
+        <code>window.overleafEditorApi</code> 中注册的 API 方法。 <br /><br />
+        <strong>文件操作说明：</strong>
+        <ul style="margin: 5px 0; padding-left: 20px">
+          <li>
+            <strong>下载文件：</strong>
+            输入文件ID，可选择自定义文件名，点击下载按钮会自动打开下载链接
+          </li>
+          <li>
+            <strong>上传文件：</strong>
+            选择本地文件，可选择自定义文件名和指定文件夹ID，上传成功后会自动清空表单
+          </li>
+        </ul>
       </div>
 
       <div class="controls">
@@ -150,6 +161,47 @@ Hello World!</textarea
       </div>
 
       <div class="controls">
+        <h3>文件操作</h3>
+        <div class="input-group">
+          <label>文件ID:</label>
+          <input type="text" id="fileId" placeholder="输入要下载的文件ID" />
+        </div>
+        <div class="input-group">
+          <label>文件名:</label>
+          <input
+            type="text"
+            id="downloadFileName"
+            placeholder="可选的自定义文件名"
+          />
+        </div>
+        <button onclick="downloadFile()">下载文件</button>
+
+        <hr style="margin: 15px 0" />
+
+        <div class="input-group">
+          <label>选择文件:</label>
+          <input type="file" id="fileInput" accept="*/*" />
+        </div>
+        <div class="input-group">
+          <label>上传文件名:</label>
+          <input
+            type="text"
+            id="uploadFileName"
+            placeholder="可选的自定义文件名"
+          />
+        </div>
+        <div class="input-group">
+          <label>文件夹ID:</label>
+          <input
+            type="text"
+            id="folderId"
+            placeholder="可选，留空则上传到根目录"
+          />
+        </div>
+        <button onclick="uploadFile()">上传文件</button>
+      </div>
+
+      <div class="controls">
         <h3>日志</h3>
         <button onclick="clearLog()">清空日志</button>
         <div id="log" class="log"></div>
@@ -158,7 +210,7 @@ Hello World!</textarea
       <div class="iframe-container">
         <iframe
           id="overleaf-editor"
-          src="http://localhost"
+          src="http://localhost/project/68e29d6cedafffc388a90203?auth=b3ZlcmxlYWY6b3ZlcmxlYWY="
           width="100%"
           height="600px"
           frameborder="0"
@@ -336,6 +388,83 @@ Hello World!</textarea
           log(`建议修改已拒绝: ${changeId}`, 'success')
         } catch (error) {
           log(`拒绝建议修改失败: ${error.message}`, 'error')
+        }
+      }
+
+      // 下载文件
+      async function downloadFile() {
+        const fileId = document.getElementById('fileId').value
+        const fileName = document.getElementById('downloadFileName').value
+
+        if (!fileId) {
+          log('请输入文件ID', 'error')
+          return
+        }
+
+        try {
+          const params = fileName ? [fileId, fileName] : [fileId]
+          const result = await callEditorApi('editor', 'downloadFile', params)
+
+          if (result.success && result.downloadUrl) {
+            log(`文件下载URL生成成功: ${result.downloadUrl}`, 'success')
+            // 自动打开下载链接
+            window.open(result.downloadUrl, '_blank')
+          } else {
+            log(`文件下载失败: ${result.error || '未知错误'}`, 'error')
+          }
+        } catch (error) {
+          log(`下载文件失败: ${error.message}`, 'error')
+        }
+      }
+
+      // 上传文件
+      async function uploadFile() {
+        const fileInput = document.getElementById('fileInput')
+        const fileName = document.getElementById('uploadFileName').value
+        const folderId = document.getElementById('folderId').value
+
+        if (!fileInput.files || fileInput.files.length === 0) {
+          log('请选择要上传的文件', 'error')
+          return
+        }
+
+        const file = fileInput.files[0]
+
+        try {
+          const params = [file]
+
+          if (fileName) {
+            params.push(fileName)
+          } else {
+            params.push(undefined)
+          }
+
+          if (folderId) {
+            params.push(folderId)
+          } else {
+            params.push(undefined)
+          }
+
+          const result = await callEditorApi('editor', 'uploadFile', params)
+
+          if (result.success) {
+            log(
+              `文件上传成功！实体ID: ${result.entityId}，哈希: ${result.hash}`,
+              'success'
+            )
+            // 清空文件输入
+            fileInput.value = ''
+            document.getElementById('uploadFileName').value = ''
+            document.getElementById('folderId').value = ''
+          } else {
+            log(`文件上传失败: ${result.error || '未知错误'}`, 'error')
+            // 显示更详细的错误信息
+            if (result.error && result.error.includes('HTTP')) {
+              log(`HTTP错误详情: ${result.error}`, 'error')
+            }
+          }
+        } catch (error) {
+          log(`上传文件失败: ${error.message}`, 'error')
         }
       }
 
