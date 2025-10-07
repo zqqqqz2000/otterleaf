@@ -61,6 +61,58 @@ function findEntityIdByPath(
   }
 }
 
+// 辅助函数：通过ID查找实体类型
+function findEntityById(
+  fileTreeData: Folder,
+  id: string
+): { entityId: string; entityType: string } | null {
+  if (!fileTreeData) {
+    return null
+  }
+
+  try {
+    // 在文档中查找
+    const doc = fileTreeData.docs.find(doc => doc._id === id)
+    if (doc) {
+      return {
+        entityId: doc._id,
+        entityType: 'doc',
+      }
+    }
+
+    // 在文件引用中查找
+    const fileRef = fileTreeData.fileRefs.find(fileRef => fileRef._id === id)
+    if (fileRef) {
+      return {
+        entityId: fileRef._id,
+        entityType: 'fileRef',
+      }
+    }
+
+    // 在文件夹中查找
+    const folder = fileTreeData.folders.find(folder => folder._id === id)
+    if (folder) {
+      return {
+        entityId: folder._id,
+        entityType: 'folder',
+      }
+    }
+
+    // 递归在子文件夹中查找
+    for (const subfolder of fileTreeData.folders) {
+      const result = findEntityById(subfolder, id)
+      if (result) {
+        return result
+      }
+    }
+
+    return null
+  } catch (error) {
+    debugConsole.warn('Could not find entity by ID:', id, error)
+    return null
+  }
+}
+
 // 定义API事件类型
 export interface EditorApiEvents {
   'editor:getSelection': {
@@ -210,6 +262,7 @@ export interface EditorApiEvents {
     requestId: string
     fileId: string
     newName: string
+    entityType?: string
   }
   'project:renameFile:response': {
     requestId: string
@@ -760,7 +813,8 @@ async function createFolder(
 // 重命名文件
 async function renameFile(
   fileId: string,
-  newName: string
+  newName: string,
+  entityType?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // 获取当前项目ID
@@ -781,11 +835,15 @@ async function renameFile(
       }
     }
 
-    // 确定实体类型，根据fileId判断
-    // 如果fileId是路径，我们需要通过其他方式确定实体类型
-    // 这里我们假设传入的是真正的实体ID，默认为file
-    let entityType = 'file'
+    // 确定实体类型
+    const fileTypeMap = {
+      fileRef: 'file',
+      doc: 'doc',
+      folder: 'folder',
+    }
 
+    let resolvedEntityType =
+      fileTypeMap[entityType as keyof typeof fileTypeMap] || 'file' // 默认类型
     // 如果fileId看起来像路径（包含/），尝试从文件树数据获取真正的实体ID
     if (fileId.includes('/')) {
       const fileTreeData = getFileTreeData()
@@ -794,14 +852,14 @@ async function renameFile(
         if (entityInfo) {
           // 使用真正的实体ID和类型
           fileId = entityInfo.entityId
-          entityType =
-            entityInfo.entityType === 'doc' ? 'file' : entityInfo.entityType
+          resolvedEntityType =
+            fileTypeMap[entityInfo.entityType as keyof typeof fileTypeMap]
           debugConsole.log(
             'Resolved entity ID from path:',
             fileId,
             '->',
             entityInfo.entityId,
-            entityType
+            resolvedEntityType
           )
         } else {
           debugConsole.warn('Could not find entity ID for path:', fileId)
@@ -812,11 +870,34 @@ async function renameFile(
           fileId
         )
       }
+    } else if (!entityType) {
+      // 如果fileId不是路径且没有提供实体类型，尝试通过文件树数据查找实体类型
+      const fileTreeData = getFileTreeData()
+      if (fileTreeData) {
+        const entityInfo = findEntityById(fileTreeData, fileId)
+        if (entityInfo) {
+          resolvedEntityType =
+            fileTypeMap[entityInfo.entityType as keyof typeof fileTypeMap]
+          debugConsole.log(
+            'Found entity type for ID:',
+            fileId,
+            '->',
+            resolvedEntityType
+          )
+        } else {
+          debugConsole.warn('Could not find entity type for ID:', fileId)
+        }
+      } else {
+        debugConsole.warn(
+          'File tree data not available for entity type resolution:',
+          fileId
+        )
+      }
     }
 
     // 构建重命名文件的URL
     const baseUrl = window.location.origin
-    const renameUrl = `${baseUrl}/project/${projectId}/${entityType}/${fileId}/rename`
+    const renameUrl = `${baseUrl}/project/${projectId}/${resolvedEntityType}/${fileId}/rename`
 
     debugConsole.log('Renaming file:', {
       fileId,
@@ -1286,11 +1367,11 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'project:renameFile': {
-      const { requestId, fileId, newName } =
+      const { requestId, fileId, newName, entityType } =
         detail as EditorApiEvents['project:renameFile']
 
       // 异步处理重命名文件
-      renameFile(fileId, newName)
+      renameFile(fileId, newName, entityType)
         .then(result => {
           const response: EditorApiEvents['project:renameFile:response'] = {
             requestId,
@@ -1793,7 +1874,8 @@ export const editorApi = {
   // 重命名文件
   renameFile: (
     fileId: string,
-    newName: string
+    newName: string,
+    entityType?: string
   ): Promise<{ success: boolean; error?: string }> => {
     return new Promise(resolve => {
       const requestId = generateRequestId()
@@ -1820,7 +1902,7 @@ export const editorApi = {
       )
       window.dispatchEvent(
         new CustomEvent('project:renameFile', {
-          detail: { requestId, fileId, newName },
+          detail: { requestId, fileId, newName, entityType },
         })
       )
     })

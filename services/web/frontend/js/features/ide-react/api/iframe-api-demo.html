@@ -170,21 +170,37 @@ Hello World!</textarea
 
       <div class="controls">
         <h3>外部API创建项目示例</h3>
-        <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 12px;">
-          <strong>API使用说明：</strong><br/>
-          1. 获取API Token：在Overleaf设置中生成API Token<br/>
-          2. 调用外部API：POST /api/project<br/>
-          3. 请求头：Authorization: Bearer {token}<br/>
-          4. 请求体：{"name": "项目名称"}<br/>
+        <div
+          style="
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 12px;
+          "
+        >
+          <strong>API使用说明：</strong><br />
+          1. 获取API Token：在Overleaf设置中生成API Token<br />
+          2. 调用外部API：POST /api/project<br />
+          3. 请求头：Authorization: Bearer {token}<br />
+          4. 请求体：{"name": "项目名称"}<br />
           5. 响应：{"success": true, "projectId": "项目ID"}
         </div>
         <div class="input-group">
           <label>项目名称:</label>
-          <input type="text" id="externalProjectName" placeholder="输入新项目名称" />
+          <input
+            type="text"
+            id="externalProjectName"
+            placeholder="输入新项目名称"
+          />
         </div>
         <div class="input-group">
           <label>API Token:</label>
-          <input type="password" id="apiToken" placeholder="输入您的API Token" />
+          <input
+            type="password"
+            id="apiToken"
+            placeholder="输入您的API Token"
+          />
         </div>
         <button onclick="createProjectExternal()">通过外部API创建项目</button>
         <button onclick="listProjectFiles()">列出项目文件</button>
@@ -250,17 +266,39 @@ Hello World!</textarea
 
       <div class="controls">
         <h3>文件重命名</h3>
+        <p style="color: #666; font-size: 12px; margin-bottom: 10px">
+          提示：您可以直接点击下方文件列表中的文件来自动填充表单，或手动输入文件信息。
+        </p>
         <div class="input-group">
           <label>文件ID:</label>
-          <input type="text" id="renameFileId" placeholder="输入要重命名的文件ID" />
+          <input
+            type="text"
+            id="renameFileId"
+            placeholder="输入要重命名的文件ID"
+          />
         </div>
         <div class="input-group">
           <label>新文件名:</label>
-          <input
-            type="text"
-            id="newFileName"
-            placeholder="输入新的文件名"
-          />
+          <input type="text" id="newFileName" placeholder="输入新的文件名" />
+        </div>
+        <div class="input-group">
+          <label>文件类型 (可选):</label>
+          <select id="renameFileType">
+            <option value="">自动检测</option>
+            <option value="doc">文档 (doc)</option>
+            <option value="fileRef">文件引用 (fileRef)</option>
+            <option value="folder">文件夹 (folder)</option>
+          </select>
+          <small
+            style="
+              color: #666;
+              font-size: 11px;
+              display: block;
+              margin-top: 2px;
+            "
+          >
+            选择"自动检测"将根据文件树数据自动确定类型
+          </small>
         </div>
         <button onclick="renameFile()">重命名文件</button>
       </div>
@@ -269,7 +307,11 @@ Hello World!</textarea
         <h3>项目文件列表</h3>
         <button onclick="refreshFileList()">刷新文件列表</button>
         <button onclick="setFileTreeDataForDemo()">设置演示文件树数据</button>
-        <div id="fileList" class="log" style="height: 150px; margin-top: 10px;"></div>
+        <div
+          id="fileList"
+          class="log"
+          style="height: 150px; margin-top: 10px"
+        ></div>
       </div>
 
       <div class="controls">
@@ -389,36 +431,39 @@ Hello World!</textarea
                 {
                   _id: 'doc-1',
                   name: 'main.tex',
-                  path: '/main.tex'
-                }
+                  path: '/main.tex',
+                },
               ],
               fileRefs: [
                 {
                   _id: 'file-1',
                   name: 'image.png',
-                  path: '/image.png'
-                }
-              ]
-            }
+                  path: '/image.png',
+                },
+              ],
+            },
           ],
           docs: [
             {
               _id: 'doc-2',
               name: 'readme.tex',
-              path: '/readme.tex'
-            }
+              path: '/readme.tex',
+            },
           ],
           fileRefs: [
             {
               _id: 'file-2',
               name: 'config.json',
-              path: '/config.json'
-            }
-          ]
+              path: '/config.json',
+            },
+          ],
         }
 
         // 设置全局文件树数据
-        if (window.overleafEditorApi && window.overleafEditorApi.setFileTreeData) {
+        if (
+          window.overleafEditorApi &&
+          window.overleafEditorApi.setFileTreeData
+        ) {
           window.overleafEditorApi.setFileTreeData(mockFileTreeData)
           log('文件树数据已设置用于演示', 'success')
         } else {
@@ -637,16 +682,19 @@ Hello World!</textarea
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiToken}`,
+              Authorization: `Bearer ${apiToken}`,
             },
             body: JSON.stringify({
-              name: projectName
-            })
+              name: projectName,
+            }),
           })
 
           if (!response.ok) {
             const errorText = await response.text()
-            log(`外部API请求失败: HTTP ${response.status} - ${errorText}`, 'error')
+            log(
+              `外部API请求失败: HTTP ${response.status} - ${errorText}`,
+              'error'
+            )
             return
           }
 
@@ -654,7 +702,10 @@ Hello World!</textarea
 
           if (result.success && result.projectId) {
             log(`项目创建成功！项目ID: ${result.projectId}`, 'success')
-            log(`项目URL: ${window.location.origin}/project/${result.projectId}`, 'info')
+            log(
+              `项目URL: ${window.location.origin}/project/${result.projectId}`,
+              'info'
+            )
             document.getElementById('externalProjectName').value = ''
             document.getElementById('apiToken').value = ''
           } else {
@@ -670,7 +721,10 @@ Hello World!</textarea
           const result = await callEditorApi('project', 'listProjectFiles', [])
 
           if (result.success && result.files) {
-            log(`项目文件列表获取成功，共 ${result.files.length} 个文件/文件夹`, 'success')
+            log(
+              `项目文件列表获取成功，共 ${result.files.length} 个文件/文件夹`,
+              'success'
+            )
             displayFileList(result.files)
           } else {
             log(`获取文件列表失败: ${result.error || '未知错误'}`, 'error')
@@ -714,6 +768,7 @@ Hello World!</textarea
       async function renameFile() {
         const fileId = document.getElementById('renameFileId').value
         const newName = document.getElementById('newFileName').value
+        const entityType = document.getElementById('renameFileType').value
 
         if (!fileId || !newName) {
           log('请输入文件ID和新文件名', 'error')
@@ -721,12 +776,22 @@ Hello World!</textarea
         }
 
         try {
-          const result = await callEditorApi('project', 'renameFile', [fileId, newName])
+          // 构建参数数组，如果entityType为空则不传递
+          const params = [fileId, newName]
+          if (entityType) {
+            params.push(entityType)
+          }
+
+          const result = await callEditorApi('project', 'renameFile', params)
 
           if (result.success) {
-            log(`文件重命名成功！`, 'success')
+            log(
+              `文件重命名成功！${entityType ? ` (类型: ${entityType})` : ''}`,
+              'success'
+            )
             document.getElementById('renameFileId').value = ''
             document.getElementById('newFileName').value = ''
+            document.getElementById('renameFileType').value = ''
             // 自动刷新文件列表
             await listProjectFiles()
           } else {
@@ -747,7 +812,8 @@ Hello World!</textarea
         fileListElement.innerHTML = ''
 
         if (files.length === 0) {
-          fileListElement.innerHTML = '<div style="color: #666;">项目中没有文件</div>'
+          fileListElement.innerHTML =
+            '<div style="color: #666;">项目中没有文件</div>'
           return
         }
 
@@ -757,19 +823,24 @@ Hello World!</textarea
           fileEntry.style.padding = '5px'
           fileEntry.style.border = '1px solid #ddd'
           fileEntry.style.borderRadius = '3px'
-          fileEntry.style.backgroundColor = file.type === 'folder' ? '#f0f8ff' : '#f9f9f9'
+          fileEntry.style.backgroundColor =
+            file.type === 'folder' ? '#f0f8ff' : '#f9f9f9'
 
           const icon = file.type === 'folder' ? '📁' : '📄'
           const size = file.size ? ` (${formatFileSize(file.size)})` : ''
-          const modified = file.modified ? ` - ${new Date(file.modified).toLocaleString()}` : ''
+          const modified = file.modified
+            ? ` - ${new Date(file.modified).toLocaleString()}`
+            : ''
 
           const entityId = file.entityId || file.id
           const entityType = file.entityType || file.type
-          const idInfo = file.entityId ? `实体ID: ${file.entityId}` : `路径ID: ${file.id}`
-          
+          const idInfo = file.entityId
+            ? `实体ID: ${file.entityId}`
+            : `路径ID: ${file.id}`
+
           fileEntry.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div>
+              <div style="flex: 1; cursor: pointer;" onclick="selectFileForRename('${entityId}', '${file.name}', '${entityType}')">
                 <span style="margin-right: 5px;">${icon}</span>
                 <strong>${file.name}</strong>
                 <span style="color: #666; font-size: 12px;">${file.path}${size}${modified}</span>
@@ -778,6 +849,7 @@ Hello World!</textarea
               </div>
               <div>
                 <button onclick="copyToClipboard('${entityId}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">复制ID</button>
+                <button onclick="selectFileForRename('${entityId}', '${file.name}', '${entityType}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px; background: #007bff; color: white; border: none; border-radius: 3px;">重命名</button>
               </div>
             </div>
           `
@@ -797,11 +869,34 @@ Hello World!</textarea
 
       // 复制到剪贴板
       function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => {
-          log(`已复制到剪贴板: ${text}`, 'success')
-        }).catch(err => {
-          log(`复制失败: ${err.message}`, 'error')
-        })
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            log(`已复制到剪贴板: ${text}`, 'success')
+          })
+          .catch(err => {
+            log(`复制失败: ${err.message}`, 'error')
+          })
+      }
+
+      // 选择文件进行重命名
+      function selectFileForRename(fileId, fileName, entityType) {
+        document.getElementById('renameFileId').value = fileId
+        document.getElementById('newFileName').value = fileName
+        document.getElementById('renameFileType').value = entityType
+
+        log(
+          `已选择文件进行重命名: ${fileName} (ID: ${fileId}, 类型: ${entityType})`,
+          'info'
+        )
+
+        // 滚动到重命名区域
+        const renameSection = document.querySelector(
+          'h3:contains("文件重命名")'
+        )
+        if (renameSection) {
+          renameSection.scrollIntoView({ behavior: 'smooth' })
+        }
       }
 
       // 页面加载完成后的初始化
