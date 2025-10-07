@@ -268,6 +268,7 @@ Hello World!</textarea
       <div class="controls">
         <h3>项目文件列表</h3>
         <button onclick="refreshFileList()">刷新文件列表</button>
+        <button onclick="setFileTreeDataForDemo()">设置演示文件树数据</button>
         <div id="fileList" class="log" style="height: 150px; margin-top: 10px;"></div>
       </div>
 
@@ -371,6 +372,58 @@ Hello World!</textarea
             reject(new Error('Iframe 未找到或未加载'))
           }
         })
+      }
+
+      // 设置文件树数据的函数（用于演示）
+      function setFileTreeDataForDemo() {
+        // 这是一个模拟的文件树数据结构
+        const mockFileTreeData = {
+          _id: 'root-folder-id',
+          name: '',
+          folders: [
+            {
+              _id: 'folder-1',
+              name: 'documents',
+              folders: [],
+              docs: [
+                {
+                  _id: 'doc-1',
+                  name: 'main.tex',
+                  path: '/main.tex'
+                }
+              ],
+              fileRefs: [
+                {
+                  _id: 'file-1',
+                  name: 'image.png',
+                  path: '/image.png'
+                }
+              ]
+            }
+          ],
+          docs: [
+            {
+              _id: 'doc-2',
+              name: 'readme.tex',
+              path: '/readme.tex'
+            }
+          ],
+          fileRefs: [
+            {
+              _id: 'file-2',
+              name: 'config.json',
+              path: '/config.json'
+            }
+          ]
+        }
+
+        // 设置全局文件树数据
+        if (window.overleafEditorApi && window.overleafEditorApi.setFileTreeData) {
+          window.overleafEditorApi.setFileTreeData(mockFileTreeData)
+          log('文件树数据已设置用于演示', 'success')
+        } else {
+          log('setFileTreeData 方法不可用', 'error')
+        }
       }
 
       // 具体 API 方法
@@ -710,15 +763,21 @@ Hello World!</textarea
           const size = file.size ? ` (${formatFileSize(file.size)})` : ''
           const modified = file.modified ? ` - ${new Date(file.modified).toLocaleString()}` : ''
 
+          const entityId = file.entityId || file.id
+          const entityType = file.entityType || file.type
+          const idInfo = file.entityId ? `实体ID: ${file.entityId}` : `路径ID: ${file.id}`
+          
           fileEntry.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div>
                 <span style="margin-right: 5px;">${icon}</span>
                 <strong>${file.name}</strong>
                 <span style="color: #666; font-size: 12px;">${file.path}${size}${modified}</span>
+                <br>
+                <span style="color: #888; font-size: 11px;">${idInfo} | 类型: ${entityType}</span>
               </div>
               <div>
-                <button onclick="copyToClipboard('${file.id}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">复制ID</button>
+                <button onclick="copyToClipboard('${entityId}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">复制ID</button>
               </div>
             </div>
           `

@@ -2,6 +2,64 @@ import { EditorView } from '@codemirror/view'
 import { debugConsole } from '@/utils/debugging'
 import { DiffEntry } from '../context/suggested-changes-context'
 import getMeta from '@/utils/meta'
+import { findEntityByPath } from '@/features/file-tree/util/path'
+import type { Folder } from '../../../../../types/folder'
+
+// 全局变量存储文件树数据
+let globalFileTreeData: Folder | null = null
+
+// 设置文件树数据的函数（由外部调用）
+export function setFileTreeData(fileTreeData: Folder | null) {
+  globalFileTreeData = fileTreeData
+}
+
+// 获取文件树数据的函数
+function getFileTreeData(): Folder | null {
+  // 首先尝试从全局变量获取
+  if (globalFileTreeData) {
+    return globalFileTreeData
+  }
+
+  // 尝试从window对象获取（如果其他地方设置了）
+  try {
+    const windowData = (window as any).fileTreeData
+    if (windowData) {
+      return windowData
+    }
+  } catch (error) {
+    debugConsole.warn('Could not access window.fileTreeData:', error)
+  }
+
+  return null
+}
+
+// 辅助函数：通过路径查找真正的实体ID
+function findEntityIdByPath(
+  fileTreeData: Folder,
+  path: string
+): { entityId: string; entityType: string } | null {
+  if (!fileTreeData) {
+    return null
+  }
+
+  try {
+    const result = findEntityByPath(
+      fileTreeData,
+      path.startsWith('/') ? path.slice(1) : path
+    )
+    console.log('findEntityIdByPath', result)
+    if (result) {
+      return {
+        entityId: result.entity._id,
+        entityType: result.type,
+      }
+    }
+    return null
+  } catch (error) {
+    debugConsole.warn('Could not find entity ID for path:', path, error)
+    return null
+  }
+}
 
 // 定义API事件类型
 export interface EditorApiEvents {
@@ -134,7 +192,6 @@ export interface EditorApiEvents {
       type: 'file' | 'folder'
       path: string
       size?: number
-      modified?: string
     }>
     error?: string
   }
@@ -456,7 +513,8 @@ async function listProjectFiles(): Promise<{
     type: 'file' | 'folder'
     path: string
     size?: number
-    modified?: string
+    entityId?: string // 添加实体ID字段
+    entityType?: string // 添加实体类型字段
   }>
   error?: string
 }> {
@@ -531,7 +589,8 @@ async function listProjectFiles(): Promise<{
         type: 'file' | 'folder'
         path: string
         size?: number
-        modified?: string
+        entityId?: string
+        entityType?: string
       }> = []
 
       // 处理实体列表
@@ -539,11 +598,40 @@ async function listProjectFiles(): Promise<{
         const pathParts = entity.path.split('/')
         const name = pathParts[pathParts.length - 1]
 
+        // 尝试通过路径查找真正的实体ID
+        // 注意：这里我们暂时使用路径作为ID，因为需要文件树数据来获取真正的实体ID
+        // 在实际应用中，应该通过React context获取fileTreeData并使用findEntityByPath函数
+        let entityId = entity.path // 默认使用路径作为ID
+        let entityType = entity.type
+
+        // 尝试从文件树数据获取真正的实体ID
+        const fileTreeData = getFileTreeData()
+        if (fileTreeData) {
+          const entityInfo = findEntityIdByPath(fileTreeData, entity.path)
+          if (entityInfo) {
+            entityId = entityInfo.entityId
+            entityType = entityInfo.entityType
+            debugConsole.log(
+              'Found entity ID for path:',
+              entity.path,
+              '->',
+              entityId,
+              entityType
+            )
+          } else {
+            debugConsole.warn('Could not find entity ID for path:', entity.path)
+          }
+        } else {
+          debugConsole.warn('File tree data not available, using path as ID')
+        }
+
         files.push({
-          id: entity.path, // 使用路径作为ID
+          id: entityId, // 使用实体ID或路径作为ID
           name: name,
-          type: entity.type, // 文档和文件都显示为文件
+          type: entity.type, // 统一显示类型
           path: entity.path,
+          entityId: entityId, // 保存真正的实体ID
+          entityType: entityType, // 保存实体类型
           // 注意：entities API 不返回大小和修改时间信息
         })
       }
@@ -693,8 +781,38 @@ async function renameFile(
       }
     }
 
-    // 确定实体类型，使用file（fileRef在URL中映射为file）
-    const entityType = 'file'
+    // 确定实体类型，根据fileId判断
+    // 如果fileId是路径，我们需要通过其他方式确定实体类型
+    // 这里我们假设传入的是真正的实体ID，默认为file
+    let entityType = 'file'
+
+    // 如果fileId看起来像路径（包含/），尝试从文件树数据获取真正的实体ID
+    if (fileId.includes('/')) {
+      const fileTreeData = getFileTreeData()
+      if (fileTreeData) {
+        const entityInfo = findEntityIdByPath(fileTreeData, fileId)
+        if (entityInfo) {
+          // 使用真正的实体ID和类型
+          fileId = entityInfo.entityId
+          entityType =
+            entityInfo.entityType === 'doc' ? 'file' : entityInfo.entityType
+          debugConsole.log(
+            'Resolved entity ID from path:',
+            fileId,
+            '->',
+            entityInfo.entityId,
+            entityType
+          )
+        } else {
+          debugConsole.warn('Could not find entity ID for path:', fileId)
+        }
+      } else {
+        debugConsole.warn(
+          'File tree data not available for path resolution:',
+          fileId
+        )
+      }
+    }
 
     // 构建重命名文件的URL
     const baseUrl = window.location.origin
@@ -735,27 +853,17 @@ async function renameFile(
       }
     }
 
-    let result
-    try {
-      result = await response.json()
-    } catch (parseError) {
-      debugConsole.error('Failed to parse response as JSON:', parseError)
-      return {
-        success: false,
-        error: 'Invalid response format from server',
-      }
-    }
-
-    if (result.success) {
-      debugConsole.log('File renamed successfully:', result)
+    if (response.status === 204) {
+      debugConsole.log('File renamed successfully')
       return {
         success: true,
       }
     } else {
+      const result = await response.text()
       debugConsole.error('File rename failed:', result)
       return {
         success: false,
-        error: result.error || 'File rename failed',
+        error: result || 'File rename failed',
       }
     }
   } catch (error) {
@@ -1608,8 +1716,8 @@ export const editorApi = {
       name: string
       type: 'file' | 'folder'
       path: string
-      size?: number
-      modified?: string
+      entityId?: string
+      entityType?: string
     }>
     error?: string
   }> => {

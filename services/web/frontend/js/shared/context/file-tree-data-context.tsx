@@ -28,6 +28,7 @@ import {
 import importOverleafModules from '../../../macros/import-overleaf-module.macro'
 import { useProjectContext } from '@/shared/context/project-context'
 import { useIdeReactContext } from '@/features/ide-react/context/ide-react-context'
+import { setFileTreeData } from '@/features/ide-react/api/editor-api'
 
 const { buildFileTree, createFolder } =
   (importOverleafModules('snapshotUtils')[0]
@@ -229,6 +230,11 @@ export const FileTreeDataProvider: FC<React.PropsWithChildren> = ({
       fileTreeData: rootFolder?.[0],
     })
   }, [rootFolder])
+
+  // 设置全局文件树数据供editor-api使用
+  useEffect(() => {
+    setFileTreeData(fileTreeData)
+  }, [fileTreeData])
 
   const dispatchCreateFolder = useCallback(
     (parentFolderId: string, entity: any) => {
