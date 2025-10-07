@@ -806,7 +806,7 @@ Hello World!</textarea
         await listProjectFiles()
       }
 
-      // 显示文件列表
+      // 显示文件列表 - 支持树结构显示
       function displayFileList(files) {
         const fileListElement = document.getElementById('fileList')
         fileListElement.innerHTML = ''
@@ -817,45 +817,56 @@ Hello World!</textarea
           return
         }
 
-        files.forEach(file => {
-          const fileEntry = document.createElement('div')
-          fileEntry.style.marginBottom = '5px'
-          fileEntry.style.padding = '5px'
-          fileEntry.style.border = '1px solid #ddd'
-          fileEntry.style.borderRadius = '3px'
-          fileEntry.style.backgroundColor =
-            file.type === 'folder' ? '#f0f8ff' : '#f9f9f9'
+        // 递归显示文件树
+        function renderFileTree(fileList, container, level = 0) {
+          fileList.forEach(file => {
+            const fileEntry = document.createElement('div')
+            fileEntry.style.marginBottom = '5px'
+            fileEntry.style.padding = '5px'
+            fileEntry.style.border = '1px solid #ddd'
+            fileEntry.style.borderRadius = '3px'
+            fileEntry.style.backgroundColor =
+              file.type === 'folder' ? '#f0f8ff' : '#f9f9f9'
+            fileEntry.style.marginLeft = `${level * 20}px` // 缩进显示层级
 
-          const icon = file.type === 'folder' ? '📁' : '📄'
-          const size = file.size ? ` (${formatFileSize(file.size)})` : ''
-          const modified = file.modified
-            ? ` - ${new Date(file.modified).toLocaleString()}`
-            : ''
+            const icon = file.type === 'folder' ? '📁' : file.type === 'doc' ? '📄' : '📎'
+            const size = file.size ? ` (${formatFileSize(file.size)})` : ''
+            const modified = file.modified
+              ? ` - ${new Date(file.modified).toLocaleString()}`
+              : ''
 
-          const entityId = file.entityId || file.id
-          const entityType = file.entityType || file.type
-          const idInfo = file.entityId
-            ? `实体ID: ${file.entityId}`
-            : `路径ID: ${file.id}`
+            const entityId = file.entityId || file.id
+            const entityType = file.entityType || file.type
+            const idInfo = file.entityId
+              ? `实体ID: ${file.entityId}`
+              : `路径ID: ${file.id}`
 
-          fileEntry.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div style="flex: 1; cursor: pointer;" onclick="selectFileForRename('${entityId}', '${file.name}', '${entityType}')">
-                <span style="margin-right: 5px;">${icon}</span>
-                <strong>${file.name}</strong>
-                <span style="color: #666; font-size: 12px;">${file.path}${size}${modified}</span>
-                <br>
-                <span style="color: #888; font-size: 11px;">${idInfo} | 类型: ${entityType}</span>
+            fileEntry.innerHTML = `
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="flex: 1; cursor: pointer;" onclick="selectFileForRename('${entityId}', '${file.name}', '${entityType}')">
+                  <span style="margin-right: 5px;">${icon}</span>
+                  <strong>${file.name}</strong>
+                  <span style="color: #666; font-size: 12px;">${file.path}${size}${modified}</span>
+                  <br>
+                  <span style="color: #888; font-size: 11px;">${idInfo} | 类型: ${entityType}</span>
+                </div>
+                <div>
+                  <button onclick="copyToClipboard('${entityId}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">复制ID</button>
+                  <button onclick="selectFileForRename('${entityId}', '${file.name}', '${entityType}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px; background: #007bff; color: white; border: none; border-radius: 3px;">重命名</button>
+                </div>
               </div>
-              <div>
-                <button onclick="copyToClipboard('${entityId}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">复制ID</button>
-                <button onclick="selectFileForRename('${entityId}', '${file.name}', '${entityType}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px; background: #007bff; color: white; border: none; border-radius: 3px;">重命名</button>
-              </div>
-            </div>
-          `
+            `
 
-          fileListElement.appendChild(fileEntry)
-        })
+            container.appendChild(fileEntry)
+
+            // 如果有子文件，递归显示
+            if (file.children && file.children.length > 0) {
+              renderFileTree(file.children, container, level + 1)
+            }
+          })
+        }
+
+        renderFileTree(files, fileListElement)
       }
 
       // 格式化文件大小

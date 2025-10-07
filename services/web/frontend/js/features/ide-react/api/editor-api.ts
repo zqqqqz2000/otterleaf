@@ -241,9 +241,12 @@ export interface EditorApiEvents {
     files?: Array<{
       id: string
       name: string
-      type: 'file' | 'folder'
+      type: 'file' | 'doc' | 'folder'
       path: string
       size?: number
+      entityId?: string
+      entityType?: string
+      children?: Array<any>
     }>
     error?: string
   }
@@ -557,152 +560,99 @@ function downloadFile(fileId: string, fileName?: string): string | null {
   }
 }
 
-// 列出项目文件
+// 列出项目文件 - 直接从文件树数据获取，保持树结构
 async function listProjectFiles(): Promise<{
   success: boolean
   files?: Array<{
     id: string
     name: string
-    type: 'file' | 'folder'
+    type: 'file' | 'doc' | 'folder'
     path: string
     size?: number
-    entityId?: string // 添加实体ID字段
-    entityType?: string // 添加实体类型字段
+    entityId?: string
+    entityType?: string
+    children?: Array<any> // 保持树结构
   }>
   error?: string
 }> {
   try {
-    // 获取当前项目ID
-    const projectId = getMeta('ol-project_id')
-    if (!projectId) {
+    // 直接从文件树数据获取，不需要HTTP请求
+    const fileTreeData = getFileTreeData()
+    if (!fileTreeData) {
       return {
         success: false,
-        error: 'Project ID not available',
+        error: 'File tree data not available',
       }
     }
 
-    // 获取CSRF token
-    const csrfToken = getMeta('ol-csrfToken')
-    if (!csrfToken) {
-      return {
-        success: false,
-        error: 'CSRF token not available',
-      }
-    }
+    debugConsole.log('Getting project files from file tree data:', fileTreeData)
 
-    // 构建获取文件列表的URL
-    const baseUrl = window.location.origin
-    const filesUrl = `${baseUrl}/project/${projectId}/entities`
+    // 递归遍历文件树，保持树结构
+    function traverseTree(folder: any, path = ''): Array<any> {
+      const files: Array<any> = []
 
-    debugConsole.log('Fetching project files:', {
-      projectId,
-      filesUrl,
-      csrfToken: csrfToken ? 'present' : 'missing',
-    })
-
-    // 发送获取文件列表请求
-    const response = await fetch(filesUrl, {
-      method: 'GET',
-      headers: {
-        'X-Csrf-Token': csrfToken,
-      },
-      credentials: 'same-origin',
-    })
-
-    // 检查响应状态
-    if (!response.ok) {
-      const errorText = await response.text()
-      debugConsole.error('List files request failed:', {
-        status: response.status,
-        statusText: response.statusText,
-        errorText,
-      })
-      return {
-        success: false,
-        error: `HTTP ${response.status}: ${response.statusText}`,
-      }
-    }
-
-    let result
-    try {
-      result = await response.json()
-    } catch (parseError) {
-      debugConsole.error('Failed to parse response as JSON:', parseError)
-      return {
-        success: false,
-        error: 'Invalid response format from server',
-      }
-    }
-
-    if (result.entities) {
-      // 处理文件列表数据
-      const files: Array<{
-        id: string
-        name: string
-        type: 'file' | 'doc'
-        path: string
-        size?: number
-        entityId?: string
-        entityType?: string
-      }> = []
-
-      // 处理实体列表
-      for (const entity of result.entities) {
-        const pathParts = entity.path.split('/')
-        const name = pathParts[pathParts.length - 1]
-
-        // 尝试通过路径查找真正的实体ID
-        // 注意：这里我们暂时使用路径作为ID，因为需要文件树数据来获取真正的实体ID
-        // 在实际应用中，应该通过React context获取fileTreeData并使用findEntityByPath函数
-        let entityId = entity.path // 默认使用路径作为ID
-        let entityType = entity.type
-
-        // 尝试从文件树数据获取真正的实体ID
-        const fileTreeData = getFileTreeData()
-        if (fileTreeData) {
-          const entityInfo = findEntityIdByPath(fileTreeData, entity.path)
-          if (entityInfo) {
-            entityId = entityInfo.entityId
-            entityType = entityInfo.entityType
-            debugConsole.log(
-              'Found entity ID for path:',
-              entity.path,
-              '->',
-              entityId,
-              entityType
-            )
-          } else {
-            debugConsole.warn('Could not find entity ID for path:', entity.path)
-          }
-        } else {
-          debugConsole.warn('File tree data not available, using path as ID')
-        }
-
+      // 添加当前文件夹
+      if (folder._id && folder.name) {
         files.push({
-          id: entityId, // 使用实体ID或路径作为ID
-          name: name,
-          type: entity.type, // 统一显示类型
-          path: entity.path,
-          entityId: entityId, // 保存真正的实体ID
-          entityType: entityType, // 保存实体类型
-          // 注意：entities API 不返回大小和修改时间信息
+          id: folder._id,
+          name: folder.name,
+          type: 'folder',
+          path: path + '/' + folder.name,
+          entityId: folder._id,
+          entityType: 'folder',
+          children: [],
         })
       }
 
-      debugConsole.log('Project files fetched successfully:', files)
-      return {
-        success: true,
-        files,
+      // 遍历文档
+      if (folder.docs) {
+        folder.docs.forEach((doc: any) => {
+          files.push({
+            id: doc._id,
+            name: doc.name,
+            type: 'doc',
+            path: path + '/' + doc.name,
+            entityId: doc._id,
+            entityType: 'doc',
+          })
+        })
       }
-    } else {
-      debugConsole.error('List files failed:', result)
-      return {
-        success: false,
-        error: result.error || 'Failed to list files',
+
+      // 遍历文件引用
+      if (folder.fileRefs) {
+        folder.fileRefs.forEach((fileRef: any) => {
+          files.push({
+            id: fileRef._id,
+            name: fileRef.name,
+            type: 'file',
+            path: path + '/' + fileRef.name,
+            size: fileRef.size,
+            entityId: fileRef._id,
+            entityType: 'fileRef',
+          })
+        })
       }
+
+      // 递归遍历子文件夹
+      if (folder.folders) {
+        folder.folders.forEach((subFolder: any) => {
+          const subFiles = traverseTree(subFolder, path + '/' + subFolder.name)
+          files.push(...subFiles)
+        })
+      }
+
+      return files
+    }
+
+    const files = traverseTree(fileTreeData)
+
+    debugConsole.log('Project files retrieved from file tree:', files)
+    return {
+      success: true,
+      files: files,
     }
   } catch (error) {
-    debugConsole.error('Failed to list project files:', error)
+    debugConsole.error('Failed to list project files from file tree:', error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
@@ -741,11 +691,17 @@ async function createFolder(
       if (fileTreeData && fileTreeData._id) {
         // 使用文件树的根文件夹ID，而不是项目ID
         targetParentId = fileTreeData._id
-        debugConsole.log('Using root folder ID from file tree data:', targetParentId)
+        debugConsole.log(
+          'Using root folder ID from file tree data:',
+          targetParentId
+        )
       } else {
         // 如果文件树数据不可用，回退到项目ID
         targetParentId = projectId
-        debugConsole.warn('File tree data not available, using project ID as fallback:', targetParentId)
+        debugConsole.warn(
+          'File tree data not available, using project ID as fallback:',
+          targetParentId
+        )
       }
     }
 
@@ -767,7 +723,7 @@ async function createFolder(
       headers: {
         'Content-Type': 'application/json',
         'X-Csrf-Token': csrfToken,
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
       credentials: 'same-origin',
       body: JSON.stringify({
@@ -999,9 +955,26 @@ async function uploadFile(
       }
     }
 
-    // 如果没有指定folderId，使用项目ID作为根文件夹ID
-    // 这是Overleaf的标准做法，根文件夹的ID就是项目ID
-    const targetFolderId = folderId || projectId
+    // 如果没有指定folderId，需要从文件树数据中获取根文件夹ID
+    let targetFolderId = folderId
+    if (!targetFolderId) {
+      const fileTreeData = getFileTreeData()
+      if (fileTreeData && fileTreeData._id) {
+        // 使用文件树的根文件夹ID，而不是项目ID
+        targetFolderId = fileTreeData._id
+        debugConsole.log(
+          'Using root folder ID from file tree data for upload:',
+          targetFolderId
+        )
+      } else {
+        // 如果文件树数据不可用，回退到项目ID
+        targetFolderId = projectId
+        debugConsole.warn(
+          'File tree data not available for upload, using project ID as fallback:',
+          targetFolderId
+        )
+      }
+    }
 
     // 使用指定的文件名或原始文件名
     const finalFileName = fileName || file.name
@@ -1808,7 +1781,7 @@ export const editorApi = {
     files?: Array<{
       id: string
       name: string
-      type: 'file' | 'folder'
+      type: 'file' | 'folder' | 'doc'
       path: string
       entityId?: string
       entityType?: string
