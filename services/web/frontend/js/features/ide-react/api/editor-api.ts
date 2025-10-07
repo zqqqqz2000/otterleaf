@@ -639,7 +639,7 @@ async function listProjectFiles(): Promise<{
       const files: Array<{
         id: string
         name: string
-        type: 'file' | 'folder'
+        type: 'file' | 'doc'
         path: string
         size?: number
         entityId?: string
@@ -734,8 +734,20 @@ async function createFolder(
       }
     }
 
-    // 如果没有指定父文件夹ID，使用项目ID作为根文件夹ID
-    const targetParentId = parentFolderId || projectId
+    // 如果没有指定父文件夹ID，需要从文件树数据中获取根文件夹ID
+    let targetParentId = parentFolderId
+    if (!targetParentId) {
+      const fileTreeData = getFileTreeData()
+      if (fileTreeData && fileTreeData._id) {
+        // 使用文件树的根文件夹ID，而不是项目ID
+        targetParentId = fileTreeData._id
+        debugConsole.log('Using root folder ID from file tree data:', targetParentId)
+      } else {
+        // 如果文件树数据不可用，回退到项目ID
+        targetParentId = projectId
+        debugConsole.warn('File tree data not available, using project ID as fallback:', targetParentId)
+      }
+    }
 
     // 构建创建文件夹的URL
     const baseUrl = window.location.origin
@@ -755,6 +767,7 @@ async function createFolder(
       headers: {
         'Content-Type': 'application/json',
         'X-Csrf-Token': csrfToken,
+        'Accept': 'application/json',
       },
       credentials: 'same-origin',
       body: JSON.stringify({
@@ -788,11 +801,11 @@ async function createFolder(
       }
     }
 
-    if (result.success && result.folder_id) {
+    if (result._id) {
       debugConsole.log('Folder created successfully:', result)
       return {
         success: true,
-        folderId: result.folder_id,
+        folderId: result._id,
       }
     } else {
       debugConsole.error('Folder creation failed:', result)
