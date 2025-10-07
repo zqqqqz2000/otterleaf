@@ -15,6 +15,7 @@ export function SuggestedChangesIntegration() {
   const view = useCodeMirrorViewContext()
   const suggestedChangesContext = useSuggestedChanges()
   const isApplyingChangeRef = useRef(false)
+  const firstTimeChangeRef = useRef(false)
 
   // Set global context reference for editor-api
   useEffect(() => {
@@ -27,7 +28,12 @@ export function SuggestedChangesIntegration() {
 
   // Initialize user document when editor loads
   useEffect(() => {
-    if (view && view.state.doc) {
+    if (
+      view &&
+      view.state.doc.toString() !== '' &&
+      !firstTimeChangeRef.current
+    ) {
+      firstTimeChangeRef.current = true
       const currentContent = view.state.doc.toString()
       if (
         currentContent !== suggestedChangesContext.userDocument &&
@@ -37,7 +43,7 @@ export function SuggestedChangesIntegration() {
         suggestedChangesContext.setRealDocument(currentContent)
       }
     }
-  }, [])
+  }, [view.state.doc.toString()])
 
   // Callback to apply a change to CodeMirror editor
   const applyToEditor = useCallback(
