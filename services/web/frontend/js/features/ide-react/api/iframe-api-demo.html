@@ -304,6 +304,41 @@ Hello World!</textarea
       </div>
 
       <div class="controls">
+        <h3>删除文件</h3>
+        <p style="color: #666; font-size: 12px; margin-bottom: 10px">
+          提示：您可以直接点击下方文件列表中的文件来自动填充表单，或手动输入文件信息。
+        </p>
+        <div class="input-group">
+          <label>文件ID:</label>
+          <input
+            type="text"
+            id="deleteFileId"
+            placeholder="输入要删除的文件ID"
+          />
+        </div>
+        <div class="input-group">
+          <label>文件类型 (可选):</label>
+          <select id="deleteFileType">
+            <option value="">自动检测</option>
+            <option value="doc">文档 (doc)</option>
+            <option value="fileRef">文件引用 (fileRef)</option>
+            <option value="folder">文件夹 (folder)</option>
+          </select>
+          <small
+            style="
+              color: #666;
+              font-size: 11px;
+              display: block;
+              margin-top: 2px;
+            "
+          >
+            选择"自动检测"将根据文件树数据自动确定类型
+          </small>
+        </div>
+        <button onclick="deleteFile()" style="background-color: #dc3545; color: white;">删除文件</button>
+      </div>
+
+      <div class="controls">
         <h3>项目文件列表</h3>
         <button onclick="refreshFileList()">刷新文件列表</button>
         <button onclick="setFileTreeDataForDemo()">设置演示文件树数据</button>
@@ -802,6 +837,46 @@ Hello World!</textarea
         }
       }
 
+      async function deleteFile() {
+        const fileId = document.getElementById('deleteFileId').value
+        const entityType = document.getElementById('deleteFileType').value
+
+        if (!fileId) {
+          log('请输入文件ID', 'error')
+          return
+        }
+
+        // 确认删除
+        if (!confirm('确定要删除这个文件吗？此操作不可撤销！')) {
+          return
+        }
+
+        try {
+          // 构建参数数组，如果entityType为空则不传递
+          const params = [fileId]
+          if (entityType) {
+            params.push(entityType)
+          }
+
+          const result = await callEditorApi('project', 'deleteFile', params)
+
+          if (result.success) {
+            log(
+              `文件删除成功！${entityType ? ` (类型: ${entityType})` : ''}`,
+              'success'
+            )
+            document.getElementById('deleteFileId').value = ''
+            document.getElementById('deleteFileType').value = ''
+            // 自动刷新文件列表
+            await listProjectFiles()
+          } else {
+            log(`文件删除失败: ${result.error || '未知错误'}`, 'error')
+          }
+        } catch (error) {
+          log(`删除文件失败: ${error.message}`, 'error')
+        }
+      }
+
       async function refreshFileList() {
         await listProjectFiles()
       }
@@ -853,6 +928,7 @@ Hello World!</textarea
                 <div>
                   <button onclick="copyToClipboard('${entityId}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">复制ID</button>
                   <button onclick="selectFileForRename('${entityId}', '${file.name}', '${entityType}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px; background: #007bff; color: white; border: none; border-radius: 3px;">重命名</button>
+                  <button onclick="selectFileForDelete('${entityId}', '${file.name}', '${entityType}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px; background: #dc3545; color: white; border: none; border-radius: 3px;">删除</button>
                 </div>
               </div>
             `
@@ -907,6 +983,24 @@ Hello World!</textarea
         )
         if (renameSection) {
           renameSection.scrollIntoView({ behavior: 'smooth' })
+        }
+      }
+
+      function selectFileForDelete(fileId, fileName, entityType) {
+        document.getElementById('deleteFileId').value = fileId
+        document.getElementById('deleteFileType').value = entityType
+
+        log(
+          `已选择文件进行删除: ${fileName} (ID: ${fileId}, 类型: ${entityType})`,
+          'info'
+        )
+
+        // 滚动到删除区域
+        const deleteSection = document.querySelector(
+          'h3:contains("删除文件")'
+        )
+        if (deleteSection) {
+          deleteSection.scrollIntoView({ behavior: 'smooth' })
         }
       }
 

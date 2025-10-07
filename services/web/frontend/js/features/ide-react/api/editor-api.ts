@@ -272,6 +272,16 @@ export interface EditorApiEvents {
     success: boolean
     error?: string
   }
+  'project:deleteFile': {
+    requestId: string
+    fileId: string
+    entityType?: string
+  }
+  'project:deleteFile:response': {
+    requestId: string
+    success: boolean
+    error?: string
+  }
 }
 
 // 全局编辑器视图引用
@@ -1057,6 +1067,131 @@ async function uploadFile(
   }
 }
 
+// 删除文件
+async function deleteFile(
+  fileId: string,
+  entityType?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 获取当前项目ID
+    const projectId = getMeta('ol-project_id')
+    if (!projectId) {
+      return {
+        success: false,
+        error: 'Project ID not available',
+      }
+    }
+
+    // 获取CSRF token
+    const csrfToken = getMeta('ol-csrfToken')
+    if (!csrfToken) {
+      return {
+        success: false,
+        error: 'CSRF token not available',
+      }
+    }
+
+    // 确定实体类型
+    let resolvedEntityType = entityType || 'fileRef' // 默认类型
+
+    // 如果fileId看起来像路径（包含/），尝试从文件树数据获取真正的实体ID
+    if (fileId.includes('/')) {
+      const fileTreeData = getFileTreeData()
+      if (fileTreeData) {
+        const entityInfo = findEntityIdByPath(fileTreeData, fileId)
+        if (entityInfo) {
+          // 使用真正的实体ID和类型
+          fileId = entityInfo.entityId
+          resolvedEntityType = entityInfo.entityType
+          debugConsole.log(
+            'Resolved entity ID from path for deletion:',
+            fileId,
+            '->',
+            entityInfo.entityId,
+            resolvedEntityType
+          )
+        } else {
+          debugConsole.warn('Could not find entity ID for path:', fileId)
+        }
+      } else {
+        debugConsole.warn(
+          'File tree data not available for path resolution:',
+          fileId
+        )
+      }
+    } else if (!entityType) {
+      // 如果fileId不是路径且没有提供实体类型，尝试通过文件树数据查找实体类型
+      const fileTreeData = getFileTreeData()
+      if (fileTreeData) {
+        const entityInfo = findEntityById(fileTreeData, fileId)
+        if (entityInfo) {
+          resolvedEntityType = entityInfo.entityType
+          debugConsole.log(
+            'Found entity type for deletion:',
+            fileId,
+            '->',
+            resolvedEntityType
+          )
+        } else {
+          debugConsole.warn('Could not find entity type for ID:', fileId)
+        }
+      } else {
+        debugConsole.warn(
+          'File tree data not available for entity type resolution:',
+          fileId
+        )
+      }
+    }
+
+    // 构建删除文件的URL
+    const baseUrl = window.location.origin
+    const deleteUrl = `${baseUrl}/project/${projectId}/${resolvedEntityType}/${fileId}`
+
+    debugConsole.log('Deleting file:', {
+      fileId,
+      deleteUrl,
+      csrfToken: csrfToken ? 'present' : 'missing',
+      projectId,
+      entityType: resolvedEntityType,
+    })
+
+    // 发送删除文件请求
+    const response = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: {
+        'X-Csrf-Token': csrfToken,
+        Accept: 'application/json',
+      },
+      credentials: 'same-origin',
+    })
+
+    // 检查响应状态
+    if (!response.ok) {
+      const errorText = await response.text()
+      debugConsole.error('Delete file request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+      })
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }
+    }
+
+    debugConsole.log('File deleted successfully')
+    return {
+      success: true,
+    }
+  } catch (error) {
+    debugConsole.error('Failed to delete file:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    }
+  }
+}
+
 // 处理API事件
 function handleApiEvent(event: CustomEvent) {
   const { type, detail } = event
@@ -1283,6 +1418,42 @@ function handleApiEvent(event: CustomEvent) {
       break
     }
 
+    case 'project:deleteFile': {
+      const { requestId, fileId, entityType } =
+        detail as EditorApiEvents['project:deleteFile']
+
+      // 异步处理删除文件
+      deleteFile(fileId, entityType)
+        .then(result => {
+          const response: EditorApiEvents['project:deleteFile:response'] = {
+            requestId,
+            success: result.success,
+            error: result.error,
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:deleteFile:response', {
+              detail: response,
+            })
+          )
+        })
+        .catch(error => {
+          const response: EditorApiEvents['project:deleteFile:response'] = {
+            requestId,
+            success: false,
+            error:
+              error instanceof Error ? error.message : 'Unknown error occurred',
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:deleteFile:response', {
+              detail: response,
+            })
+          )
+        })
+      break
+    }
+
     case 'project:listFiles': {
       const { requestId } = detail as EditorApiEvents['project:listFiles']
 
@@ -1406,6 +1577,7 @@ export function initializeEditorApi() {
     'project:listFiles',
     'project:createFolder',
     'project:renameFile',
+    'project:deleteFile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -1431,6 +1603,7 @@ export function cleanupEditorApi() {
     'project:listFiles',
     'project:createFolder',
     'project:renameFile',
+    'project:deleteFile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -1889,6 +2062,42 @@ export const editorApi = {
       window.dispatchEvent(
         new CustomEvent('project:renameFile', {
           detail: { requestId, fileId, newName, entityType },
+        })
+      )
+    })
+  },
+
+  // 删除文件
+  deleteFile: (
+    fileId: string,
+    entityType?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['project:deleteFile:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'project:deleteFile:response',
+            handleResponse as EventListener
+          )
+          resolve({
+            success: detail.success,
+            error: detail.error,
+          })
+        }
+      }
+
+      window.addEventListener(
+        'project:deleteFile:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('project:deleteFile', {
+          detail: { requestId, fileId, entityType },
         })
       )
     })
