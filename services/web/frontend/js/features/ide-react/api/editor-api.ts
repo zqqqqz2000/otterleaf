@@ -122,6 +122,43 @@ export interface EditorApiEvents {
     hash?: string
     error?: string
   }
+  'project:listFiles': {
+    requestId: string
+  }
+  'project:listFiles:response': {
+    requestId: string
+    success: boolean
+    files?: Array<{
+      id: string
+      name: string
+      type: 'file' | 'folder'
+      path: string
+      size?: number
+      modified?: string
+    }>
+    error?: string
+  }
+  'project:createFolder': {
+    requestId: string
+    folderName: string
+    parentFolderId?: string
+  }
+  'project:createFolder:response': {
+    requestId: string
+    success: boolean
+    folderId?: string
+    error?: string
+  }
+  'project:renameFile': {
+    requestId: string
+    fileId: string
+    newName: string
+  }
+  'project:renameFile:response': {
+    requestId: string
+    success: boolean
+    error?: string
+  }
 }
 
 // 全局编辑器视图引用
@@ -395,11 +432,13 @@ function downloadFile(fileId: string, fileName?: string): string | null {
 
     // 构建下载URL
     const baseUrl = window.location.origin
-    const downloadUrl = `${baseUrl}/Project/${projectId}/file/${fileId}`
-    
+    const downloadUrl = `${baseUrl}/project/${projectId}/file/${fileId}`
+
     // 如果有文件名，添加到URL参数中
-    const url = fileName ? `${downloadUrl}?filename=${encodeURIComponent(fileName)}` : downloadUrl
-    
+    const url = fileName
+      ? `${downloadUrl}?filename=${encodeURIComponent(fileName)}`
+      : downloadUrl
+
     debugConsole.log('Generated download URL:', url)
     return url
   } catch (error) {
@@ -408,19 +447,26 @@ function downloadFile(fileId: string, fileName?: string): string | null {
   }
 }
 
-// 上传文件
-async function uploadFile(
-  file: File, 
-  fileName?: string, 
-  folderId?: string
-): Promise<{ success: boolean; entityId?: string; hash?: string; error?: string }> {
+// 列出项目文件
+async function listProjectFiles(): Promise<{
+  success: boolean
+  files?: Array<{
+    id: string
+    name: string
+    type: 'file' | 'folder'
+    path: string
+    size?: number
+    modified?: string
+  }>
+  error?: string
+}> {
   try {
     // 获取当前项目ID
     const projectId = getMeta('ol-project_id')
     if (!projectId) {
       return {
         success: false,
-        error: 'Project ID not available for file upload'
+        error: 'Project ID not available',
       }
     }
 
@@ -429,7 +475,325 @@ async function uploadFile(
     if (!csrfToken) {
       return {
         success: false,
-        error: 'CSRF token not available'
+        error: 'CSRF token not available',
+      }
+    }
+
+    // 构建获取文件列表的URL
+    const baseUrl = window.location.origin
+    const filesUrl = `${baseUrl}/project/${projectId}/entities`
+
+    debugConsole.log('Fetching project files:', {
+      projectId,
+      filesUrl,
+      csrfToken: csrfToken ? 'present' : 'missing',
+    })
+
+    // 发送获取文件列表请求
+    const response = await fetch(filesUrl, {
+      method: 'GET',
+      headers: {
+        'X-Csrf-Token': csrfToken,
+      },
+      credentials: 'same-origin',
+    })
+
+    // 检查响应状态
+    if (!response.ok) {
+      const errorText = await response.text()
+      debugConsole.error('List files request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+      })
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }
+    }
+
+    let result
+    try {
+      result = await response.json()
+    } catch (parseError) {
+      debugConsole.error('Failed to parse response as JSON:', parseError)
+      return {
+        success: false,
+        error: 'Invalid response format from server',
+      }
+    }
+
+    if (result.entities) {
+      // 处理文件列表数据
+      const files: Array<{
+        id: string
+        name: string
+        type: 'file' | 'folder'
+        path: string
+        size?: number
+        modified?: string
+      }> = []
+
+      // 处理实体列表
+      for (const entity of result.entities) {
+        const pathParts = entity.path.split('/')
+        const name = pathParts[pathParts.length - 1]
+
+        files.push({
+          id: entity.path, // 使用路径作为ID
+          name: name,
+          type: entity.type, // 文档和文件都显示为文件
+          path: entity.path,
+          // 注意：entities API 不返回大小和修改时间信息
+        })
+      }
+
+      debugConsole.log('Project files fetched successfully:', files)
+      return {
+        success: true,
+        files,
+      }
+    } else {
+      debugConsole.error('List files failed:', result)
+      return {
+        success: false,
+        error: result.error || 'Failed to list files',
+      }
+    }
+  } catch (error) {
+    debugConsole.error('Failed to list project files:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    }
+  }
+}
+
+// 创建文件夹
+async function createFolder(
+  folderName: string,
+  parentFolderId?: string
+): Promise<{ success: boolean; folderId?: string; error?: string }> {
+  try {
+    // 获取当前项目ID
+    const projectId = getMeta('ol-project_id')
+    if (!projectId) {
+      return {
+        success: false,
+        error: 'Project ID not available',
+      }
+    }
+
+    // 获取CSRF token
+    const csrfToken = getMeta('ol-csrfToken')
+    if (!csrfToken) {
+      return {
+        success: false,
+        error: 'CSRF token not available',
+      }
+    }
+
+    // 如果没有指定父文件夹ID，使用项目ID作为根文件夹ID
+    const targetParentId = parentFolderId || projectId
+
+    // 构建创建文件夹的URL
+    const baseUrl = window.location.origin
+    const createFolderUrl = `${baseUrl}/project/${projectId}/folder`
+
+    debugConsole.log('Creating folder:', {
+      folderName,
+      parentFolderId: targetParentId,
+      createFolderUrl,
+      csrfToken: csrfToken ? 'present' : 'missing',
+      projectId,
+    })
+
+    // 发送创建文件夹请求
+    const response = await fetch(createFolderUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Csrf-Token': csrfToken,
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        name: folderName,
+        parent_folder_id: targetParentId,
+      }),
+    })
+
+    // 检查响应状态
+    if (!response.ok) {
+      const errorText = await response.text()
+      debugConsole.error('Create folder request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+      })
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }
+    }
+
+    let result
+    try {
+      result = await response.json()
+    } catch (parseError) {
+      debugConsole.error('Failed to parse response as JSON:', parseError)
+      return {
+        success: false,
+        error: 'Invalid response format from server',
+      }
+    }
+
+    if (result.success && result.folder_id) {
+      debugConsole.log('Folder created successfully:', result)
+      return {
+        success: true,
+        folderId: result.folder_id,
+      }
+    } else {
+      debugConsole.error('Folder creation failed:', result)
+      return {
+        success: false,
+        error: result.error || 'Folder creation failed',
+      }
+    }
+  } catch (error) {
+    debugConsole.error('Failed to create folder:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    }
+  }
+}
+
+// 重命名文件
+async function renameFile(
+  fileId: string,
+  newName: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 获取当前项目ID
+    const projectId = getMeta('ol-project_id')
+    if (!projectId) {
+      return {
+        success: false,
+        error: 'Project ID not available',
+      }
+    }
+
+    // 获取CSRF token
+    const csrfToken = getMeta('ol-csrfToken')
+    if (!csrfToken) {
+      return {
+        success: false,
+        error: 'CSRF token not available',
+      }
+    }
+
+    // 确定实体类型，使用file（fileRef在URL中映射为file）
+    const entityType = 'file'
+
+    // 构建重命名文件的URL
+    const baseUrl = window.location.origin
+    const renameUrl = `${baseUrl}/project/${projectId}/${entityType}/${fileId}/rename`
+
+    debugConsole.log('Renaming file:', {
+      fileId,
+      newName,
+      renameUrl,
+      csrfToken: csrfToken ? 'present' : 'missing',
+      projectId,
+    })
+
+    // 发送重命名文件请求
+    const response = await fetch(renameUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Csrf-Token': csrfToken,
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        name: newName,
+      }),
+    })
+
+    // 检查响应状态
+    if (!response.ok) {
+      const errorText = await response.text()
+      debugConsole.error('Rename file request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+      })
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }
+    }
+
+    let result
+    try {
+      result = await response.json()
+    } catch (parseError) {
+      debugConsole.error('Failed to parse response as JSON:', parseError)
+      return {
+        success: false,
+        error: 'Invalid response format from server',
+      }
+    }
+
+    if (result.success) {
+      debugConsole.log('File renamed successfully:', result)
+      return {
+        success: true,
+      }
+    } else {
+      debugConsole.error('File rename failed:', result)
+      return {
+        success: false,
+        error: result.error || 'File rename failed',
+      }
+    }
+  } catch (error) {
+    debugConsole.error('Failed to rename file:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    }
+  }
+}
+
+// 上传文件
+async function uploadFile(
+  file: File,
+  fileName?: string,
+  folderId?: string
+): Promise<{
+  success: boolean
+  entityId?: string
+  hash?: string
+  error?: string
+}> {
+  try {
+    // 获取当前项目ID
+    const projectId = getMeta('ol-project_id')
+    if (!projectId) {
+      return {
+        success: false,
+        error: 'Project ID not available for file upload',
+      }
+    }
+
+    // 获取CSRF token
+    const csrfToken = getMeta('ol-csrfToken')
+    if (!csrfToken) {
+      return {
+        success: false,
+        error: 'CSRF token not available',
       }
     }
 
@@ -450,14 +814,14 @@ async function uploadFile(
 
     // 构建上传URL
     const baseUrl = window.location.origin
-    const uploadUrl = `${baseUrl}/Project/${projectId}/upload?folder_id=${targetFolderId}`
+    const uploadUrl = `${baseUrl}/project/${projectId}/upload?folder_id=${targetFolderId}`
 
     debugConsole.log('Uploading file:', {
       fileName: finalFileName,
       folderId: targetFolderId,
       uploadUrl,
       csrfToken: csrfToken ? 'present' : 'missing',
-      projectId
+      projectId,
     })
 
     // 发送上传请求
@@ -467,7 +831,7 @@ async function uploadFile(
         'X-Csrf-Token': csrfToken, // 使用正确的header名称
       },
       credentials: 'same-origin', // 包含cookies以维持会话状态
-      body: formData
+      body: formData,
     })
 
     // 检查响应状态
@@ -476,11 +840,11 @@ async function uploadFile(
       debugConsole.error('Upload request failed:', {
         status: response.status,
         statusText: response.statusText,
-        errorText
+        errorText,
       })
       return {
         success: false,
-        error: `HTTP ${response.status}: ${response.statusText}`
+        error: `HTTP ${response.status}: ${response.statusText}`,
       }
     }
 
@@ -491,7 +855,7 @@ async function uploadFile(
       debugConsole.error('Failed to parse response as JSON:', parseError)
       return {
         success: false,
-        error: 'Invalid response format from server'
+        error: 'Invalid response format from server',
       }
     }
 
@@ -500,20 +864,20 @@ async function uploadFile(
       return {
         success: true,
         entityId: result.entity_id,
-        hash: result.hash
+        hash: result.hash,
       }
     } else {
       debugConsole.error('File upload failed:', result)
       return {
         success: false,
-        error: result.error || 'Upload failed'
+        error: result.error || 'Upload failed',
       }
     }
   } catch (error) {
     debugConsole.error('Failed to upload file:', error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred'
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     }
   }
 }
@@ -700,7 +1064,8 @@ function handleApiEvent(event: CustomEvent) {
         requestId,
         success: downloadUrl !== null,
         downloadUrl: downloadUrl || undefined,
-        error: downloadUrl === null ? 'Failed to generate download URL' : undefined,
+        error:
+          downloadUrl === null ? 'Failed to generate download URL' : undefined,
       }
 
       window.dispatchEvent(
@@ -712,31 +1077,135 @@ function handleApiEvent(event: CustomEvent) {
     case 'editor:uploadFile': {
       const { requestId, file, fileName, folderId } =
         detail as EditorApiEvents['editor:uploadFile']
-      
+
       // 异步处理上传
-      uploadFile(file, fileName, folderId).then(result => {
-        const response: EditorApiEvents['editor:uploadFile:response'] = {
-          requestId,
-          success: result.success,
-          entityId: result.entityId,
-          hash: result.hash,
-          error: result.error,
-        }
+      uploadFile(file, fileName, folderId)
+        .then(result => {
+          const response: EditorApiEvents['editor:uploadFile:response'] = {
+            requestId,
+            success: result.success,
+            entityId: result.entityId,
+            hash: result.hash,
+            error: result.error,
+          }
 
-        window.dispatchEvent(
-          new CustomEvent('editor:uploadFile:response', { detail: response })
-        )
-      }).catch(error => {
-        const response: EditorApiEvents['editor:uploadFile:response'] = {
-          requestId,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error occurred',
-        }
+          window.dispatchEvent(
+            new CustomEvent('editor:uploadFile:response', { detail: response })
+          )
+        })
+        .catch(error => {
+          const response: EditorApiEvents['editor:uploadFile:response'] = {
+            requestId,
+            success: false,
+            error:
+              error instanceof Error ? error.message : 'Unknown error occurred',
+          }
 
-        window.dispatchEvent(
-          new CustomEvent('editor:uploadFile:response', { detail: response })
-        )
-      })
+          window.dispatchEvent(
+            new CustomEvent('editor:uploadFile:response', { detail: response })
+          )
+        })
+      break
+    }
+
+    case 'project:listFiles': {
+      const { requestId } = detail as EditorApiEvents['project:listFiles']
+
+      // 异步处理列出文件
+      listProjectFiles()
+        .then(result => {
+          const response: EditorApiEvents['project:listFiles:response'] = {
+            requestId,
+            success: result.success,
+            files: result.files,
+            error: result.error,
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:listFiles:response', { detail: response })
+          )
+        })
+        .catch(error => {
+          const response: EditorApiEvents['project:listFiles:response'] = {
+            requestId,
+            success: false,
+            error:
+              error instanceof Error ? error.message : 'Unknown error occurred',
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:listFiles:response', { detail: response })
+          )
+        })
+      break
+    }
+
+    case 'project:createFolder': {
+      const { requestId, folderName, parentFolderId } =
+        detail as EditorApiEvents['project:createFolder']
+
+      // 异步处理创建文件夹
+      createFolder(folderName, parentFolderId)
+        .then(result => {
+          const response: EditorApiEvents['project:createFolder:response'] = {
+            requestId,
+            success: result.success,
+            folderId: result.folderId,
+            error: result.error,
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:createFolder:response', {
+              detail: response,
+            })
+          )
+        })
+        .catch(error => {
+          const response: EditorApiEvents['project:createFolder:response'] = {
+            requestId,
+            success: false,
+            error:
+              error instanceof Error ? error.message : 'Unknown error occurred',
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:createFolder:response', {
+              detail: response,
+            })
+          )
+        })
+      break
+    }
+
+    case 'project:renameFile': {
+      const { requestId, fileId, newName } =
+        detail as EditorApiEvents['project:renameFile']
+
+      // 异步处理重命名文件
+      renameFile(fileId, newName)
+        .then(result => {
+          const response: EditorApiEvents['project:renameFile:response'] = {
+            requestId,
+            success: result.success,
+            error: result.error,
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:renameFile:response', { detail: response })
+          )
+        })
+        .catch(error => {
+          const response: EditorApiEvents['project:renameFile:response'] = {
+            requestId,
+            success: false,
+            error:
+              error instanceof Error ? error.message : 'Unknown error occurred',
+          }
+
+          window.dispatchEvent(
+            new CustomEvent('project:renameFile:response', { detail: response })
+          )
+        })
       break
     }
 
@@ -759,6 +1228,9 @@ export function initializeEditorApi() {
     'editor:recompile',
     'editor:downloadFile',
     'editor:uploadFile',
+    'project:listFiles',
+    'project:createFolder',
+    'project:renameFile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -781,6 +1253,9 @@ export function cleanupEditorApi() {
     'editor:recompile',
     'editor:downloadFile',
     'editor:uploadFile',
+    'project:listFiles',
+    'project:createFolder',
+    'project:renameFile',
   ]
 
   eventTypes.forEach(eventType => {
@@ -1062,9 +1537,9 @@ export const editorApi = {
             'editor:downloadFile:response',
             handleResponse as EventListener
           )
-          resolve({ 
-            success: detail.success, 
-            downloadUrl: detail.downloadUrl 
+          resolve({
+            success: detail.success,
+            downloadUrl: detail.downloadUrl,
           })
         }
       }
@@ -1086,7 +1561,12 @@ export const editorApi = {
     file: File,
     fileName?: string,
     folderId?: string
-  ): Promise<{ success: boolean; entityId?: string; hash?: string; error?: string }> => {
+  ): Promise<{
+    success: boolean
+    entityId?: string
+    hash?: string
+    error?: string
+  }> => {
     return new Promise(resolve => {
       const requestId = generateRequestId()
 
@@ -1099,11 +1579,11 @@ export const editorApi = {
             'editor:uploadFile:response',
             handleResponse as EventListener
           )
-          resolve({ 
-            success: detail.success, 
+          resolve({
+            success: detail.success,
             entityId: detail.entityId,
             hash: detail.hash,
-            error: detail.error
+            error: detail.error,
           })
         }
       }
@@ -1115,6 +1595,124 @@ export const editorApi = {
       window.dispatchEvent(
         new CustomEvent('editor:uploadFile', {
           detail: { requestId, file, fileName, folderId },
+        })
+      )
+    })
+  },
+
+  // 列出项目文件
+  listProjectFiles: (): Promise<{
+    success: boolean
+    files?: Array<{
+      id: string
+      name: string
+      type: 'file' | 'folder'
+      path: string
+      size?: number
+      modified?: string
+    }>
+    error?: string
+  }> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['project:listFiles:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'project:listFiles:response',
+            handleResponse as EventListener
+          )
+          resolve({
+            success: detail.success,
+            files: detail.files,
+            error: detail.error,
+          })
+        }
+      }
+
+      window.addEventListener(
+        'project:listFiles:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('project:listFiles', {
+          detail: { requestId },
+        })
+      )
+    })
+  },
+
+  // 创建文件夹
+  createFolder: (
+    folderName: string,
+    parentFolderId?: string
+  ): Promise<{ success: boolean; folderId?: string; error?: string }> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['project:createFolder:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'project:createFolder:response',
+            handleResponse as EventListener
+          )
+          resolve({
+            success: detail.success,
+            folderId: detail.folderId,
+            error: detail.error,
+          })
+        }
+      }
+
+      window.addEventListener(
+        'project:createFolder:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('project:createFolder', {
+          detail: { requestId, folderName, parentFolderId },
+        })
+      )
+    })
+  },
+
+  // 重命名文件
+  renameFile: (
+    fileId: string,
+    newName: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['project:renameFile:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'project:renameFile:response',
+            handleResponse as EventListener
+          )
+          resolve({
+            success: detail.success,
+            error: detail.error,
+          })
+        }
+      }
+
+      window.addEventListener(
+        'project:renameFile:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('project:renameFile', {
+          detail: { requestId, fileId, newName },
         })
       )
     })

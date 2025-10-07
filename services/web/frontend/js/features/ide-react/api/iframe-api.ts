@@ -23,6 +23,10 @@ const ALLOWED_ORIGINS = [
   'https://localhost:5173',
   'http://127.0.0.1:5173',
   'https://127.0.0.1:5173',
+  'http://localhost:3000',
+  'https://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://127.0.0.1:3000',
 ]
 
 // 检查源是否被允许
@@ -47,10 +51,10 @@ async function handleApiCall(
       throw new Error('overleafEditorApi not available')
     }
 
-    // 目前只支持 editor API
-    if (api !== 'editor') {
+    // 支持 editor 和 project API（除了创建项目功能）
+    if (api !== 'editor' && api !== 'project') {
       throw new Error(
-        `API '${api}' not supported. Only 'editor' API is available`
+        `API '${api}' not supported. Only 'editor' and 'project' APIs are available`
       )
     }
 

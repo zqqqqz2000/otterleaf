@@ -109,15 +109,23 @@
         <strong>说明：</strong> 请将下面的 iframe URL 替换为您的实际 Overleaf
         项目 URL。此 iframe API 直接调用
         <code>window.overleafEditorApi</code> 中注册的 API 方法。 <br /><br />
-        <strong>文件操作说明：</strong>
+        <strong>功能说明：</strong>
         <ul style="margin: 5px 0; padding-left: 20px">
           <li>
-            <strong>下载文件：</strong>
-            输入文件ID，可选择自定义文件名，点击下载按钮会自动打开下载链接
+            <strong>外部API创建项目：</strong>
+            通过外部API创建新项目，需要提供API Token，创建成功后返回项目ID和URL
           </li>
           <li>
-            <strong>上传文件：</strong>
-            选择本地文件，可选择自定义文件名和指定文件夹ID，上传成功后会自动清空表单
+            <strong>文件管理：</strong>
+            列出当前项目下的所有文件和文件夹，在项目下创建新文件夹，重命名文件
+          </li>
+          <li>
+            <strong>文件操作：</strong>
+            下载文件（输入文件ID，可选择自定义文件名），上传文件（选择本地文件，可选择自定义文件名和指定文件夹ID）
+          </li>
+          <li>
+            <strong>文件列表：</strong>
+            显示项目中的所有文件和文件夹，包括类型、路径、大小、修改时间等信息，可复制文件ID
           </li>
         </ul>
       </div>
@@ -161,6 +169,28 @@ Hello World!</textarea
       </div>
 
       <div class="controls">
+        <h3>外部API创建项目示例</h3>
+        <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 12px;">
+          <strong>API使用说明：</strong><br/>
+          1. 获取API Token：在Overleaf设置中生成API Token<br/>
+          2. 调用外部API：POST /api/project<br/>
+          3. 请求头：Authorization: Bearer {token}<br/>
+          4. 请求体：{"name": "项目名称"}<br/>
+          5. 响应：{"success": true, "projectId": "项目ID"}
+        </div>
+        <div class="input-group">
+          <label>项目名称:</label>
+          <input type="text" id="externalProjectName" placeholder="输入新项目名称" />
+        </div>
+        <div class="input-group">
+          <label>API Token:</label>
+          <input type="password" id="apiToken" placeholder="输入您的API Token" />
+        </div>
+        <button onclick="createProjectExternal()">通过外部API创建项目</button>
+        <button onclick="listProjectFiles()">列出项目文件</button>
+      </div>
+
+      <div class="controls">
         <h3>文件操作</h3>
         <div class="input-group">
           <label>文件ID:</label>
@@ -199,6 +229,46 @@ Hello World!</textarea
           />
         </div>
         <button onclick="uploadFile()">上传文件</button>
+      </div>
+
+      <div class="controls">
+        <h3>文件夹操作</h3>
+        <div class="input-group">
+          <label>文件夹名称:</label>
+          <input type="text" id="folderName" placeholder="输入新文件夹名称" />
+        </div>
+        <div class="input-group">
+          <label>父文件夹ID:</label>
+          <input
+            type="text"
+            id="parentFolderId"
+            placeholder="可选，留空则在根目录创建"
+          />
+        </div>
+        <button onclick="createFolder()">创建文件夹</button>
+      </div>
+
+      <div class="controls">
+        <h3>文件重命名</h3>
+        <div class="input-group">
+          <label>文件ID:</label>
+          <input type="text" id="renameFileId" placeholder="输入要重命名的文件ID" />
+        </div>
+        <div class="input-group">
+          <label>新文件名:</label>
+          <input
+            type="text"
+            id="newFileName"
+            placeholder="输入新的文件名"
+          />
+        </div>
+        <button onclick="renameFile()">重命名文件</button>
+      </div>
+
+      <div class="controls">
+        <h3>项目文件列表</h3>
+        <button onclick="refreshFileList()">刷新文件列表</button>
+        <div id="fileList" class="log" style="height: 150px; margin-top: 10px;"></div>
       </div>
 
       <div class="controls">
@@ -491,6 +561,188 @@ Hello World!</textarea
         } catch (error) {
           log(`重新编译失败: ${error.message}`, 'error')
         }
+      }
+
+      // 外部API创建项目功能
+      async function createProjectExternal() {
+        const projectName = document.getElementById('externalProjectName').value
+        const apiToken = document.getElementById('apiToken').value
+
+        if (!projectName) {
+          log('请输入项目名称', 'error')
+          return
+        }
+
+        if (!apiToken) {
+          log('请输入API Token', 'error')
+          return
+        }
+
+        try {
+          // 使用外部API创建项目
+          const response = await fetch('http://localhost/api/project', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiToken}`,
+            },
+            body: JSON.stringify({
+              name: projectName
+            })
+          })
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            log(`外部API请求失败: HTTP ${response.status} - ${errorText}`, 'error')
+            return
+          }
+
+          const result = await response.json()
+
+          if (result.success && result.projectId) {
+            log(`项目创建成功！项目ID: ${result.projectId}`, 'success')
+            log(`项目URL: ${window.location.origin}/project/${result.projectId}`, 'info')
+            document.getElementById('externalProjectName').value = ''
+            document.getElementById('apiToken').value = ''
+          } else {
+            log(`项目创建失败: ${result.error || '未知错误'}`, 'error')
+          }
+        } catch (error) {
+          log(`创建项目失败: ${error.message}`, 'error')
+        }
+      }
+
+      async function listProjectFiles() {
+        try {
+          const result = await callEditorApi('project', 'listProjectFiles', [])
+
+          if (result.success && result.files) {
+            log(`项目文件列表获取成功，共 ${result.files.length} 个文件/文件夹`, 'success')
+            displayFileList(result.files)
+          } else {
+            log(`获取文件列表失败: ${result.error || '未知错误'}`, 'error')
+          }
+        } catch (error) {
+          log(`获取文件列表失败: ${error.message}`, 'error')
+        }
+      }
+
+      async function createFolder() {
+        const folderName = document.getElementById('folderName').value
+        const parentFolderId = document.getElementById('parentFolderId').value
+
+        if (!folderName) {
+          log('请输入文件夹名称', 'error')
+          return
+        }
+
+        try {
+          const params = [folderName]
+          if (parentFolderId) {
+            params.push(parentFolderId)
+          }
+
+          const result = await callEditorApi('project', 'createFolder', params)
+
+          if (result.success && result.folderId) {
+            log(`文件夹创建成功！文件夹ID: ${result.folderId}`, 'success')
+            document.getElementById('folderName').value = ''
+            document.getElementById('parentFolderId').value = ''
+            // 自动刷新文件列表
+            await listProjectFiles()
+          } else {
+            log(`文件夹创建失败: ${result.error || '未知错误'}`, 'error')
+          }
+        } catch (error) {
+          log(`创建文件夹失败: ${error.message}`, 'error')
+        }
+      }
+
+      async function renameFile() {
+        const fileId = document.getElementById('renameFileId').value
+        const newName = document.getElementById('newFileName').value
+
+        if (!fileId || !newName) {
+          log('请输入文件ID和新文件名', 'error')
+          return
+        }
+
+        try {
+          const result = await callEditorApi('project', 'renameFile', [fileId, newName])
+
+          if (result.success) {
+            log(`文件重命名成功！`, 'success')
+            document.getElementById('renameFileId').value = ''
+            document.getElementById('newFileName').value = ''
+            // 自动刷新文件列表
+            await listProjectFiles()
+          } else {
+            log(`文件重命名失败: ${result.error || '未知错误'}`, 'error')
+          }
+        } catch (error) {
+          log(`重命名文件失败: ${error.message}`, 'error')
+        }
+      }
+
+      async function refreshFileList() {
+        await listProjectFiles()
+      }
+
+      // 显示文件列表
+      function displayFileList(files) {
+        const fileListElement = document.getElementById('fileList')
+        fileListElement.innerHTML = ''
+
+        if (files.length === 0) {
+          fileListElement.innerHTML = '<div style="color: #666;">项目中没有文件</div>'
+          return
+        }
+
+        files.forEach(file => {
+          const fileEntry = document.createElement('div')
+          fileEntry.style.marginBottom = '5px'
+          fileEntry.style.padding = '5px'
+          fileEntry.style.border = '1px solid #ddd'
+          fileEntry.style.borderRadius = '3px'
+          fileEntry.style.backgroundColor = file.type === 'folder' ? '#f0f8ff' : '#f9f9f9'
+
+          const icon = file.type === 'folder' ? '📁' : '📄'
+          const size = file.size ? ` (${formatFileSize(file.size)})` : ''
+          const modified = file.modified ? ` - ${new Date(file.modified).toLocaleString()}` : ''
+
+          fileEntry.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="margin-right: 5px;">${icon}</span>
+                <strong>${file.name}</strong>
+                <span style="color: #666; font-size: 12px;">${file.path}${size}${modified}</span>
+              </div>
+              <div>
+                <button onclick="copyToClipboard('${file.id}')" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">复制ID</button>
+              </div>
+            </div>
+          `
+
+          fileListElement.appendChild(fileEntry)
+        })
+      }
+
+      // 格式化文件大小
+      function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B'
+        const k = 1024
+        const sizes = ['B', 'KB', 'MB', 'GB']
+        const i = Math.floor(Math.log(bytes) / Math.log(k))
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+      }
+
+      // 复制到剪贴板
+      function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+          log(`已复制到剪贴板: ${text}`, 'success')
+        }).catch(err => {
+          log(`复制失败: ${err.message}`, 'error')
+        })
       }
 
       // 页面加载完成后的初始化

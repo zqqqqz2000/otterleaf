@@ -4,8 +4,14 @@ import withErrorBoundary from '@/infrastructure/error-boundary'
 import IdePage from '@/features/ide-react/components/layout/ide-page'
 import { ReactContextRoot } from '@/features/ide-react/context/react-context-root'
 import { Loading } from '@/features/ide-react/components/loading'
-import { initializeEditorApi, cleanupEditorApi } from '@/features/ide-react/api/editor-api'
-import { initializeIframeApi, cleanupIframeApi } from '@/features/ide-react/api/iframe-api'
+import {
+  initializeEditorApi,
+  cleanupEditorApi,
+} from '@/features/ide-react/api/editor-api'
+import {
+  initializeIframeApi,
+  cleanupIframeApi,
+} from '@/features/ide-react/api/iframe-api'
 
 const IdeRoot: FC = () => {
   const [loaded, setLoaded] = useState(false)
@@ -14,7 +20,7 @@ const IdeRoot: FC = () => {
   useEffect(() => {
     initializeEditorApi()
     initializeIframeApi()
-    
+
     return () => {
       cleanupEditorApi()
       cleanupIframeApi()
