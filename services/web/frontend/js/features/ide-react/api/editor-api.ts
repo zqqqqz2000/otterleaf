@@ -282,6 +282,22 @@ export interface EditorApiEvents {
     success: boolean
     error?: string
   }
+  'editor:openAiDiff': {
+    requestId: string
+  }
+  'editor:openAiDiff:response': {
+    requestId: string
+    success: boolean
+    error?: string
+  }
+  'editor:closeAiDiff': {
+    requestId: string
+  }
+  'editor:closeAiDiff:response': {
+    requestId: string
+    success: boolean
+    error?: string
+  }
 }
 
 // 全局编辑器视图引用
@@ -301,6 +317,9 @@ let globalSuggestedChangesContext: {
   setRealDocument: (content: string) => void
   getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
   setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
+  isAiDiffMode: boolean
+  openAiDiff: () => void
+  closeAiDiff: () => void
 } | null = null
 
 // 设置全局编辑器视图
@@ -326,6 +345,9 @@ export function setGlobalSuggestedChangesContext(
     setRealDocument: (content: string) => void
     getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
     setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
+    isAiDiffMode: boolean
+    openAiDiff: () => void
+    closeAiDiff: () => void
   } | null
 ) {
   globalSuggestedChangesContext = context
@@ -1555,6 +1577,80 @@ function handleApiEvent(event: CustomEvent) {
       break
     }
 
+    case 'editor:openAiDiff': {
+      const { requestId } = detail as EditorApiEvents['editor:openAiDiff']
+      
+      if (!globalSuggestedChangesContext) {
+        const response: EditorApiEvents['editor:openAiDiff:response'] = {
+          requestId,
+          success: false,
+          error: 'Suggested changes context not available',
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:openAiDiff:response', { detail: response })
+        )
+        break
+      }
+
+      try {
+        globalSuggestedChangesContext.openAiDiff()
+        const response: EditorApiEvents['editor:openAiDiff:response'] = {
+          requestId,
+          success: true,
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:openAiDiff:response', { detail: response })
+        )
+      } catch (error) {
+        const response: EditorApiEvents['editor:openAiDiff:response'] = {
+          requestId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:openAiDiff:response', { detail: response })
+        )
+      }
+      break
+    }
+
+    case 'editor:closeAiDiff': {
+      const { requestId } = detail as EditorApiEvents['editor:closeAiDiff']
+      
+      if (!globalSuggestedChangesContext) {
+        const response: EditorApiEvents['editor:closeAiDiff:response'] = {
+          requestId,
+          success: false,
+          error: 'Suggested changes context not available',
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:closeAiDiff:response', { detail: response })
+        )
+        break
+      }
+
+      try {
+        globalSuggestedChangesContext.closeAiDiff()
+        const response: EditorApiEvents['editor:closeAiDiff:response'] = {
+          requestId,
+          success: true,
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:closeAiDiff:response', { detail: response })
+        )
+      } catch (error) {
+        const response: EditorApiEvents['editor:closeAiDiff:response'] = {
+          requestId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+        window.dispatchEvent(
+          new CustomEvent('editor:closeAiDiff:response', { detail: response })
+        )
+      }
+      break
+    }
+
     default:
       debugConsole.warn('Unknown editor API event:', type)
   }
@@ -1574,6 +1670,8 @@ export function initializeEditorApi() {
     'editor:recompile',
     'editor:downloadFile',
     'editor:uploadFile',
+    'editor:openAiDiff',
+    'editor:closeAiDiff',
     'project:listFiles',
     'project:createFolder',
     'project:renameFile',
@@ -1600,6 +1698,8 @@ export function cleanupEditorApi() {
     'editor:recompile',
     'editor:downloadFile',
     'editor:uploadFile',
+    'editor:openAiDiff',
+    'editor:closeAiDiff',
     'project:listFiles',
     'project:createFolder',
     'project:renameFile',
@@ -2098,6 +2198,65 @@ export const editorApi = {
       window.dispatchEvent(
         new CustomEvent('project:deleteFile', {
           detail: { requestId, fileId, entityType },
+        })
+      )
+    })
+  },
+
+  // AI diff mode control methods
+  openAiDiff: (): Promise<boolean> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:openAiDiff:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'editor:openAiDiff:response',
+            handleResponse as EventListener
+          )
+          resolve(detail.success)
+        }
+      }
+
+      window.addEventListener(
+        'editor:openAiDiff:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:openAiDiff', {
+          detail: { requestId },
+        })
+      )
+    })
+  },
+
+  closeAiDiff: (): Promise<boolean> => {
+    return new Promise(resolve => {
+      const requestId = generateRequestId()
+
+      const handleResponse = (event: CustomEvent) => {
+        const { detail } = event as {
+          detail: EditorApiEvents['editor:closeAiDiff:response']
+        }
+        if (detail.requestId === requestId) {
+          window.removeEventListener(
+            'editor:closeAiDiff:response',
+            handleResponse as EventListener
+          )
+          resolve(detail.success)
+        }
+      }
+
+      window.addEventListener(
+        'editor:closeAiDiff:response',
+        handleResponse as EventListener
+      )
+      window.dispatchEvent(
+        new CustomEvent('editor:closeAiDiff', {
+          detail: { requestId },
         })
       )
     })

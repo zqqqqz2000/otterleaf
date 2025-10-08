@@ -26,7 +26,7 @@ export function SuggestedChangesIntegration() {
     }
   }, [])
 
-  // Initialize user document when editor loads
+  // Initialize user document when editor loads (only set once)
   useEffect(() => {
     if (
       view &&
@@ -35,15 +35,15 @@ export function SuggestedChangesIntegration() {
     ) {
       firstTimeChangeRef.current = true
       const currentContent = view.state.doc.toString()
-      if (
-        currentContent !== suggestedChangesContext.userDocument &&
-        !isApplyingChangeRef.current
-      ) {
+      // Only set user document if it's empty (initial load)
+      if (suggestedChangesContext.userDocument === '') {
         suggestedChangesContext.setUserDocument(currentContent)
         suggestedChangesContext.setRealDocument(currentContent)
       }
     }
   }, [view.state.doc.toString()])
+
+  // Note: Real document is automatically updated in computeDiffs when AI diff mode is enabled
 
   // Callback to apply a change to CodeMirror editor
   const applyToEditor = useCallback(
@@ -148,17 +148,20 @@ export function SuggestedChangesIntegration() {
     [suggestedChangesContext]
   )
 
-  // Update CodeMirror decorations when diffs change
+  // Update CodeMirror decorations when diffs change (only in AI diff mode)
   useEffect(() => {
-    if (view) {
+    if (view && suggestedChangesContext.isAiDiffMode) {
       updateSuggestedChanges(
         view,
         suggestedChangesContext.diffs,
         handleAcceptChange,
         handleRevertChange
       )
+    } else if (view && !suggestedChangesContext.isAiDiffMode) {
+      // Clear decorations when AI diff mode is disabled
+      updateSuggestedChanges(view, [], handleAcceptChange, handleRevertChange)
     }
-  }, [view, JSON.stringify(suggestedChangesContext.diffs)])
+  }, [view, JSON.stringify(suggestedChangesContext.diffs), suggestedChangesContext.isAiDiffMode])
 
   return null // Logic component, no UI
 }

@@ -45,6 +45,10 @@ interface SuggestedChangesContextValue {
   // Get callback to revert change from CodeMirror
   getRevertFromEditorCallback: () => ((diff: DiffEntry) => void) | null
   setRevertFromEditorCallback: (callback: (diff: DiffEntry) => void) => void
+  // AI diff mode: whether to show diffs for AI-generated changes
+  isAiDiffMode: boolean
+  openAiDiff: () => void
+  closeAiDiff: () => void
 }
 
 const SuggestedChangesContext =
@@ -69,6 +73,8 @@ export function SuggestedChangesProvider({
 }: SuggestedChangesProviderProps) {
   // User document: the baseline from user's perspective
   const [userDocument, setUserDocument] = useState<string>('')
+  // AI diff mode: whether to show diffs for AI-generated changes
+  const [isAiDiffMode, setIsAiDiffMode] = useState<boolean>(false)
   const view = useCodeMirrorViewContext()
 
   // Generate diff id based on diff content using Web Crypto API SHA256 hash first 8 characters
@@ -244,6 +250,11 @@ export function SuggestedChangesProvider({
       return []
     }
 
+    // Only compute diffs when AI diff mode is enabled
+    if (!isAiDiffMode) {
+      return []
+    }
+
     const diffs: DiffEntry[] = []
     console.log(
       '==============================================================='
@@ -304,6 +315,7 @@ export function SuggestedChangesProvider({
     view.state.doc.toString(),
     mergeAdjacentDiffs,
     generateDiffId,
+    isAiDiffMode,
   ])
 
   const [diffs, setDiffs] = useState<DiffEntry[]>([])
@@ -378,6 +390,28 @@ export function SuggestedChangesProvider({
     []
   )
 
+  // AI diff mode control functions
+  const openAiDiff = useCallback(() => {
+    console.log('Opening AI diff mode')
+    
+    // When opening AI diff mode, set the current editor content as the baseline (user document)
+    // if user document is empty or different from current content
+    const currentContent = view.state.doc.toString()
+    if (userDocument === '' || userDocument !== currentContent) {
+      console.log('Setting user document baseline:', currentContent)
+      setUserDocument(currentContent)
+    }
+    
+    setIsAiDiffMode(true)
+  }, [view.state.doc.toString()]) // 移除 userDocument 依赖，避免循环
+
+  const closeAiDiff = useCallback(() => {
+    console.log('Closing AI diff mode')
+    setIsAiDiffMode(false)
+    // Clear all diffs when closing AI diff mode
+    setDiffs([])
+  }, [])
+
   const contextValue: SuggestedChangesContextValue = {
     userDocument,
     diffs,
@@ -390,6 +424,9 @@ export function SuggestedChangesProvider({
     setApplyToEditorCallback,
     getRevertFromEditorCallback,
     setRevertFromEditorCallback,
+    isAiDiffMode,
+    openAiDiff,
+    closeAiDiff,
   }
 
   return (
