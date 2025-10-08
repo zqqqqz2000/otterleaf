@@ -520,59 +520,79 @@ const AuthenticationController = {
           return next()
         }
 
-        const [username, password] = credentials
-        if (Settings.httpAuthUsers[username] && Settings.httpAuthUsers[username] === password) {
-          // 认证成功，查询第一个admin用户
-          AuthenticationController._findFirstAdminUser()
-            .then(adminUser => {
-              if (adminUser) {
-                // 设置真实admin用户的session
-                req.session.user = adminUser
-                req.session.passport = { user: adminUser }
-                logger.debug({ 
-                  username, 
-                  projectId: req.params.Project_id, 
-                  adminUserId: adminUser._id 
-                }, 'iframe auth successful with real admin user')
-                Metrics.inc('security.http-auth', 1, { status: 'accept', method: 'url-param' })
-                return next()
-              } else {
-                logger.debug({ username }, 'iframe auth failed - no admin user found')
-                Metrics.inc('security.http-auth', 1, { status: 'reject', method: 'url-param' })
-                return next()
-              }
-            })
-            .catch(error => {
-              logger.error({ error, username }, 'iframe auth failed - error finding admin user')
-              Metrics.inc('security.http-auth', 1, { status: 'reject', method: 'url-param' })
-              return next()
-            })
-        } else {
-          logger.debug({ username }, 'iframe auth failed - invalid credentials')
+        const [email, password] = credentials
+        
+        // 验证邮箱格式
+        const parsedEmail = EmailHelper.parseEmail(email)
+        if (!parsedEmail) {
+          logger.debug({ email }, 'iframe auth failed - invalid email format')
           Metrics.inc('security.http-auth', 1, { status: 'reject', method: 'url-param' })
           return next()
         }
+
+        // 使用真实的用户认证
+        AuthenticationManager.promises.authenticate(
+          { email: parsedEmail },
+          password,
+          {
+            ipAddress: req.ip,
+            info: { method: 'iframe URL parameter auth' }
+          },
+          { enforceHIBPCheck: false } // iframe认证不强制HIBP检查
+        )
+        .then(({ user }) => {
+          if (user) {
+            // 认证成功，设置真实用户的session
+            req.session.user = {
+              _id: user._id,
+              first_name: user.first_name,
+              last_name: user.last_name,
+              email: user.email,
+              isAdmin: user.isAdmin,
+              features: user.features,
+              staffAccess: user.staffAccess
+            }
+            req.session.passport = { user: req.session.user }
+            
+            logger.info({ 
+              email: parsedEmail,
+              userId: user._id,
+              projectId: req.params.Project_id,
+              ip: req.ip
+            }, 'iframe auth successful with real user')
+            
+            // 记录审计日志
+            UserAuditLogHandler.promises.addEntry(
+              user._id,
+              'iframe-login',
+              user._id,
+              req.ip,
+              { method: 'iframe URL parameter auth', projectId: req.params.Project_id }
+            ).catch(err => {
+              logger.error({ err, userId: user._id }, 'failed to add iframe auth audit log')
+            })
+            
+            Metrics.inc('security.http-auth', 1, { status: 'accept', method: 'url-param' })
+            return next()
+          } else {
+            logger.warn({ email: parsedEmail, ip: req.ip }, 'iframe auth failed - invalid credentials')
+            Metrics.inc('security.http-auth', 1, { status: 'reject', method: 'url-param' })
+            return next()
+          }
+        })
+        .catch(error => {
+          logger.error({ error, email: parsedEmail, ip: req.ip }, 'iframe auth failed - authentication error')
+          Metrics.inc('security.http-auth', 1, { status: 'reject', method: 'url-param' })
+          return next()
+        })
       } catch (error) {
-        logger.debug({ error, authParam }, 'iframe auth failed - decode error')
+        logger.error({ error, authParam, ip: req.ip }, 'iframe auth failed - decode error')
         Metrics.inc('security.http-auth', 1, { status: 'reject', method: 'url-param' })
         return next()
       }
     }
   },
 
-  // 查找第一个admin用户
-  async _findFirstAdminUser() {
-    const { User } = require('../../models/User')
-    try {
-      const adminUser = await User.findOne({ isAdmin: true })
-        .select('_id email first_name last_name isAdmin features')
-        .exec()
-      return adminUser
-    } catch (error) {
-      logger.error({ error }, 'failed to find admin user')
-      return null
-    }
-  },
 
   setAuditInfo(req, info) {
     if (!req.__authAuditInfo) {

@@ -80,12 +80,6 @@ async function ensureUserCanWriteProjectSettings(req, res, next) {
   const projectId = _getProjectId(req)
   const userId = _getUserId(req)
   const token = TokenAccessHandler.getRequestToken(req, projectId)
-  
-  // 检查是否是iframe admin用户
-  if (req.session.user && req.session.user.isAdmin && req.session.user._id === 'iframe-admin') {
-    logger.debug({ projectId }, 'allowing iframe admin access to project')
-    return next()
-  }
 
   if (req.body.name != null) {
     const canRename = await AuthorizationManager.promises.canUserRenameProject(
