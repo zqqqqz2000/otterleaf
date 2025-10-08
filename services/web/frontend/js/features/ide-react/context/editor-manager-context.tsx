@@ -377,7 +377,6 @@ export const EditorManagerProvider: FC<React.PropsWithChildren> = ({
 
   const openDoc = useCallback(
     async (doc: Doc, options: OpenDocOptions = {}) => {
-      console.log('doc id: ', doc._id)
       debugConsole.log(`[openDoc] Opening ${doc._id}`)
 
       const { promise, resolve, reject } = Promise.withResolvers<Doc>()

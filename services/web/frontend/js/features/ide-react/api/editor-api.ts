@@ -319,7 +319,6 @@ let globalSuggestedChangesContext: {
   setRealDocument: (content: string) => void
   getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
   setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
-  isAiDiffMode: boolean
   openAiDiff: (fileId?: string) => void
   closeAiDiff: (fileId?: string) => void
 } | null = null
@@ -347,7 +346,6 @@ export function setGlobalSuggestedChangesContext(
     setRealDocument: (content: string) => void
     getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
     setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
-    isAiDiffMode: boolean
     openAiDiff: (fileId?: string) => void
     closeAiDiff: (fileId?: string) => void
   } | null
