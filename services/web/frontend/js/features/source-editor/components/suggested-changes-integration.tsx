@@ -43,6 +43,11 @@ export function SuggestedChangesIntegration() {
     }
   }, [view.state.doc.toString()])
 
+  // Reset firstTimeChangeRef when switching files
+  useEffect(() => {
+    firstTimeChangeRef.current = false
+  }, [suggestedChangesContext.userDocument])
+
   // Note: Real document is automatically updated in computeDiffs when AI diff mode is enabled
 
   // Callback to apply a change to CodeMirror editor

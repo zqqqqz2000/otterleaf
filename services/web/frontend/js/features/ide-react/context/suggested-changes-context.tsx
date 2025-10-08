@@ -28,6 +28,7 @@ export interface DiffEntry {
 // File-specific AI diff state
 interface FileAiDiffState {
   userDocument: string
+  realDocument: string
   isAiDiffMode: boolean
 }
 
@@ -86,6 +87,7 @@ export function SuggestedChangesProvider({
   // Get current file's AI diff state
   const currentFileState = currentDocumentId ? fileAiDiffStates.get(currentDocumentId) : null
   const userDocument = currentFileState?.userDocument || ''
+  const realDocument = currentFileState?.realDocument || ''
   const isAiDiffMode = currentFileState?.isAiDiffMode || false
 
   // Generate diff id based on diff content using Web Crypto API SHA256 hash first 8 characters
@@ -108,23 +110,34 @@ export function SuggestedChangesProvider({
     
     setFileAiDiffStates(prev => {
       const newMap = new Map(prev)
-      const currentState = newMap.get(currentDocumentId) || { userDocument: '', isAiDiffMode: false }
+      const currentState = newMap.get(currentDocumentId) || { userDocument: '', realDocument: '', isAiDiffMode: false }
       newMap.set(currentDocumentId, { ...currentState, userDocument: content })
       return newMap
     })
   }, [currentDocumentId])
 
-  // Current real document content
-  const setRealDocument = (docContent: string) => {
-    const realDocument = view.state.doc.toString()
+  // Set real document for current file
+  const setRealDocument = useCallback((docContent: string) => {
+    if (!currentDocumentId) return
+    
+    // Update the real document in the file state
+    setFileAiDiffStates(prev => {
+      const newMap = new Map(prev)
+      const currentState = newMap.get(currentDocumentId) || { userDocument: '', realDocument: '', isAiDiffMode: false }
+      newMap.set(currentDocumentId, { ...currentState, realDocument: docContent })
+      return newMap
+    })
+    
+    // Also update the actual editor content
+    const currentRealDocument = view.state.doc.toString()
     view.dispatch({
       changes: {
         from: 0,
-        to: realDocument.length,
+        to: currentRealDocument.length,
         insert: docContent,
       },
     })
-  }
+  }, [currentDocumentId, view])
 
   // Callbacks to interact with CodeMirror editor
   const applyToEditorCallbackRef = useRef<((diff: DiffEntry) => void) | null>(
@@ -268,8 +281,8 @@ export function SuggestedChangesProvider({
 
   // Compute diffs between user document and real document using diff library
   const computeDiffs = useCallback(async (): Promise<DiffEntry[]> => {
-    const realDocument = view.state.doc.toString()
-    if (userDocument === undefined || realDocument === undefined) {
+    const currentRealDocument = view.state.doc.toString()
+    if (userDocument === undefined || currentRealDocument === undefined) {
       return []
     }
 
@@ -278,13 +291,18 @@ export function SuggestedChangesProvider({
       return []
     }
 
+    // Use the stored real document for this file, or fall back to current editor content
+    const fileRealDocument = realDocument || currentRealDocument
+
     const diffs: DiffEntry[] = []
     console.log(
       '==============================================================='
     )
+    console.log('Current file ID:', currentDocumentId)
+    console.log('AI diff mode:', isAiDiffMode)
     console.log('user: ', userDocument)
-    console.log('real: ', realDocument)
-    const changes = diff.diffChars(userDocument, realDocument)
+    console.log('real: ', fileRealDocument)
+    const changes = diff.diffChars(userDocument, fileRealDocument)
 
     let userPos = 0
     let realPos = 0
@@ -335,6 +353,7 @@ export function SuggestedChangesProvider({
     return await mergeAdjacentDiffs(diffs)
   }, [
     userDocument,
+    realDocument,
     view.state.doc.toString(),
     mergeAdjacentDiffs,
     generateDiffId,
@@ -342,7 +361,26 @@ export function SuggestedChangesProvider({
   ])
 
   const [diffs, setDiffs] = useState<DiffEntry[]>([])
-  const realDocument = view.state.doc.toString()
+  const currentRealDocument = view.state.doc.toString()
+
+  // Update real document when editor content changes (for current file)
+  React.useEffect(() => {
+    if (currentDocumentId && isAiDiffMode) {
+      const currentContent = view.state.doc.toString()
+      console.log('Updating real document for file:', currentDocumentId, 'content:', currentContent)
+      setFileAiDiffStates(prev => {
+        const newMap = new Map(prev)
+        const currentState = newMap.get(currentDocumentId)
+        if (currentState) {
+          newMap.set(currentDocumentId, { 
+            ...currentState, 
+            realDocument: currentContent 
+          })
+        }
+        return newMap
+      })
+    }
+  }, [view.state.doc.toString(), currentDocumentId, isAiDiffMode])
 
   // Update diffs when user document or real document changes
   React.useEffect(() => {
@@ -366,7 +404,7 @@ export function SuggestedChangesProvider({
 
       applyToEditorCallbackRef.current?.(diffEntry)
     },
-    [diffs, realDocument]
+    [diffs, currentRealDocument]
   )
 
   // Revert a change: restore real document to match user document (undo)
@@ -422,7 +460,7 @@ export function SuggestedChangesProvider({
     
     setFileAiDiffStates(prev => {
       const newMap = new Map(prev)
-      const currentState = newMap.get(targetFileId) || { userDocument: '', isAiDiffMode: false }
+      const currentState = newMap.get(targetFileId) || { userDocument: '', realDocument: '', isAiDiffMode: false }
       
       // When opening AI diff mode, set the current editor content as the baseline (user document)
       // if user document is empty or different from current content
@@ -432,11 +470,13 @@ export function SuggestedChangesProvider({
         newMap.set(targetFileId, { 
           ...currentState, 
           userDocument: currentContent,
+          realDocument: currentContent,
           isAiDiffMode: true 
         })
       } else {
         newMap.set(targetFileId, { 
           ...currentState, 
+          realDocument: currentContent,
           isAiDiffMode: true 
         })
       }
