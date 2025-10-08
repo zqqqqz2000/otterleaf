@@ -8,6 +8,7 @@ import React, {
 } from 'react'
 import * as diff from 'diff'
 import { useCodeMirrorViewContext } from '@/features/source-editor/components/codemirror-context'
+import { useEditorOpenDocContext } from './editor-open-doc-context'
 
 // Diff entry representing difference between user and real document
 export interface DiffEntry {
@@ -22,6 +23,12 @@ export interface DiffEntry {
   realText: string
   // Type of change: 'insert', 'delete', or 'replace'
   type: 'insert' | 'delete' | 'replace'
+}
+
+// File-specific AI diff state
+interface FileAiDiffState {
+  userDocument: string
+  isAiDiffMode: boolean
 }
 
 // Context interface with new dual-document architecture
@@ -45,10 +52,10 @@ interface SuggestedChangesContextValue {
   // Get callback to revert change from CodeMirror
   getRevertFromEditorCallback: () => ((diff: DiffEntry) => void) | null
   setRevertFromEditorCallback: (callback: (diff: DiffEntry) => void) => void
-  // AI diff mode: whether to show diffs for AI-generated changes
+  // AI diff mode: whether to show diffs for AI-generated changes (file-specific)
   isAiDiffMode: boolean
-  openAiDiff: () => void
-  closeAiDiff: () => void
+  openAiDiff: (fileId?: string) => void
+  closeAiDiff: (fileId?: string) => void
 }
 
 const SuggestedChangesContext =
@@ -71,11 +78,15 @@ interface SuggestedChangesProviderProps {
 export function SuggestedChangesProvider({
   children,
 }: SuggestedChangesProviderProps) {
-  // User document: the baseline from user's perspective
-  const [userDocument, setUserDocument] = useState<string>('')
-  // AI diff mode: whether to show diffs for AI-generated changes
-  const [isAiDiffMode, setIsAiDiffMode] = useState<boolean>(false)
+  // File-specific AI diff states: fileId -> FileAiDiffState
+  const [fileAiDiffStates, setFileAiDiffStates] = useState<Map<string, FileAiDiffState>>(new Map())
+  const { currentDocumentId } = useEditorOpenDocContext()
   const view = useCodeMirrorViewContext()
+
+  // Get current file's AI diff state
+  const currentFileState = currentDocumentId ? fileAiDiffStates.get(currentDocumentId) : null
+  const userDocument = currentFileState?.userDocument || ''
+  const isAiDiffMode = currentFileState?.isAiDiffMode || false
 
   // Generate diff id based on diff content using Web Crypto API SHA256 hash first 8 characters
   const generateDiffId = useCallback(
@@ -91,6 +102,18 @@ export function SuggestedChangesProvider({
     },
     []
   )
+  // Set user document for current file
+  const setUserDocument = useCallback((content: string) => {
+    if (!currentDocumentId) return
+    
+    setFileAiDiffStates(prev => {
+      const newMap = new Map(prev)
+      const currentState = newMap.get(currentDocumentId) || { userDocument: '', isAiDiffMode: false }
+      newMap.set(currentDocumentId, { ...currentState, userDocument: content })
+      return newMap
+    })
+  }, [currentDocumentId])
+
   // Current real document content
   const setRealDocument = (docContent: string) => {
     const realDocument = view.state.doc.toString()
@@ -391,26 +414,57 @@ export function SuggestedChangesProvider({
   )
 
   // AI diff mode control functions
-  const openAiDiff = useCallback(() => {
-    console.log('Opening AI diff mode')
+  const openAiDiff = useCallback((fileId?: string) => {
+    const targetFileId = fileId || currentDocumentId
+    if (!targetFileId) return
     
-    // When opening AI diff mode, set the current editor content as the baseline (user document)
-    // if user document is empty or different from current content
-    const currentContent = view.state.doc.toString()
-    if (userDocument === '' || userDocument !== currentContent) {
-      console.log('Setting user document baseline:', currentContent)
-      setUserDocument(currentContent)
-    }
+    console.log('Opening AI diff mode for file:', targetFileId)
     
-    setIsAiDiffMode(true)
-  }, [view.state.doc.toString()]) // 移除 userDocument 依赖，避免循环
+    setFileAiDiffStates(prev => {
+      const newMap = new Map(prev)
+      const currentState = newMap.get(targetFileId) || { userDocument: '', isAiDiffMode: false }
+      
+      // When opening AI diff mode, set the current editor content as the baseline (user document)
+      // if user document is empty or different from current content
+      const currentContent = view.state.doc.toString()
+      if (currentState.userDocument === '' || currentState.userDocument !== currentContent) {
+        console.log('Setting user document baseline:', currentContent)
+        newMap.set(targetFileId, { 
+          ...currentState, 
+          userDocument: currentContent,
+          isAiDiffMode: true 
+        })
+      } else {
+        newMap.set(targetFileId, { 
+          ...currentState, 
+          isAiDiffMode: true 
+        })
+      }
+      return newMap
+    })
+  }, [currentDocumentId, view.state.doc.toString()])
 
-  const closeAiDiff = useCallback(() => {
-    console.log('Closing AI diff mode')
-    setIsAiDiffMode(false)
+  const closeAiDiff = useCallback((fileId?: string) => {
+    const targetFileId = fileId || currentDocumentId
+    if (!targetFileId) return
+    
+    console.log('Closing AI diff mode for file:', targetFileId)
+    
+    setFileAiDiffStates(prev => {
+      const newMap = new Map(prev)
+      const currentState = newMap.get(targetFileId)
+      if (currentState) {
+        newMap.set(targetFileId, { 
+          ...currentState, 
+          isAiDiffMode: false 
+        })
+      }
+      return newMap
+    })
+    
     // Clear all diffs when closing AI diff mode
     setDiffs([])
-  }, [])
+  }, [currentDocumentId])
 
   const contextValue: SuggestedChangesContextValue = {
     userDocument,

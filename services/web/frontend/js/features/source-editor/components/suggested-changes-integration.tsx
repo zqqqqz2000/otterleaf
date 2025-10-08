@@ -26,7 +26,7 @@ export function SuggestedChangesIntegration() {
     }
   }, [])
 
-  // Initialize user document when editor loads (only set once)
+  // Initialize user document when editor loads (only set once per file)
   useEffect(() => {
     if (
       view &&
@@ -35,7 +35,7 @@ export function SuggestedChangesIntegration() {
     ) {
       firstTimeChangeRef.current = true
       const currentContent = view.state.doc.toString()
-      // Only set user document if it's empty (initial load)
+      // Only set user document if it's empty (initial load for this file)
       if (suggestedChangesContext.userDocument === '') {
         suggestedChangesContext.setUserDocument(currentContent)
         suggestedChangesContext.setRealDocument(currentContent)

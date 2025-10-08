@@ -284,6 +284,7 @@ export interface EditorApiEvents {
   }
   'editor:openAiDiff': {
     requestId: string
+    fileId?: string
   }
   'editor:openAiDiff:response': {
     requestId: string
@@ -292,6 +293,7 @@ export interface EditorApiEvents {
   }
   'editor:closeAiDiff': {
     requestId: string
+    fileId?: string
   }
   'editor:closeAiDiff:response': {
     requestId: string
@@ -318,8 +320,8 @@ let globalSuggestedChangesContext: {
   getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
   setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
   isAiDiffMode: boolean
-  openAiDiff: () => void
-  closeAiDiff: () => void
+  openAiDiff: (fileId?: string) => void
+  closeAiDiff: (fileId?: string) => void
 } | null = null
 
 // 设置全局编辑器视图
@@ -346,8 +348,8 @@ export function setGlobalSuggestedChangesContext(
     getApplyToEditorCallback: () => ((diff: DiffEntry) => void) | null
     setApplyToEditorCallback: (callback: (diff: DiffEntry) => void) => void
     isAiDiffMode: boolean
-    openAiDiff: () => void
-    closeAiDiff: () => void
+    openAiDiff: (fileId?: string) => void
+    closeAiDiff: (fileId?: string) => void
   } | null
 ) {
   globalSuggestedChangesContext = context
@@ -1578,7 +1580,7 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:openAiDiff': {
-      const { requestId } = detail as EditorApiEvents['editor:openAiDiff']
+      const { requestId, fileId } = detail as EditorApiEvents['editor:openAiDiff']
       
       if (!globalSuggestedChangesContext) {
         const response: EditorApiEvents['editor:openAiDiff:response'] = {
@@ -1593,7 +1595,7 @@ function handleApiEvent(event: CustomEvent) {
       }
 
       try {
-        globalSuggestedChangesContext.openAiDiff()
+        globalSuggestedChangesContext.openAiDiff(fileId)
         const response: EditorApiEvents['editor:openAiDiff:response'] = {
           requestId,
           success: true,
@@ -1615,7 +1617,7 @@ function handleApiEvent(event: CustomEvent) {
     }
 
     case 'editor:closeAiDiff': {
-      const { requestId } = detail as EditorApiEvents['editor:closeAiDiff']
+      const { requestId, fileId } = detail as EditorApiEvents['editor:closeAiDiff']
       
       if (!globalSuggestedChangesContext) {
         const response: EditorApiEvents['editor:closeAiDiff:response'] = {
@@ -1630,7 +1632,7 @@ function handleApiEvent(event: CustomEvent) {
       }
 
       try {
-        globalSuggestedChangesContext.closeAiDiff()
+        globalSuggestedChangesContext.closeAiDiff(fileId)
         const response: EditorApiEvents['editor:closeAiDiff:response'] = {
           requestId,
           success: true,
@@ -2204,7 +2206,7 @@ export const editorApi = {
   },
 
   // AI diff mode control methods
-  openAiDiff: (): Promise<boolean> => {
+  openAiDiff: (fileId?: string): Promise<boolean> => {
     return new Promise(resolve => {
       const requestId = generateRequestId()
 
@@ -2227,13 +2229,13 @@ export const editorApi = {
       )
       window.dispatchEvent(
         new CustomEvent('editor:openAiDiff', {
-          detail: { requestId },
+          detail: { requestId, fileId },
         })
       )
     })
   },
 
-  closeAiDiff: (): Promise<boolean> => {
+  closeAiDiff: (fileId?: string): Promise<boolean> => {
     return new Promise(resolve => {
       const requestId = generateRequestId()
 
@@ -2256,7 +2258,7 @@ export const editorApi = {
       )
       window.dispatchEvent(
         new CustomEvent('editor:closeAiDiff', {
-          detail: { requestId },
+          detail: { requestId, fileId },
         })
       )
     })
